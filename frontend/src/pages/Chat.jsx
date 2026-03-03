@@ -302,9 +302,6 @@ export default function Chat() {
               </span>
             )}
           </div>
-          <div className="chat-header-right">
-            <span className="header-model-badge">GPT-4o</span>
-          </div>
         </div>
 
         {error && (

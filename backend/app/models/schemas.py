@@ -7,6 +7,22 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    code: str
+    new_password: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -24,10 +40,18 @@ class UserOut(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    username: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
+    last_name:  Optional[str] = None
+    username:   Optional[str] = None
+    phone:      Optional[str] = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password:     str
+
+
+class AvatarUpdateRequest(BaseModel):
+    avatar_url: Optional[str] = None   # None / empty string = remove avatar
 
 
 class ChatMessageIn(BaseModel):
