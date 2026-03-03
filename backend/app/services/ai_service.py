@@ -1,286 +1,435 @@
 """
-Econex AI Service – CSV-driven response engine (no OpenAI required).
+Econex AI Service – relationship-table driven response engine (no OpenAI required).
 
-Reads ARDL model outputs from CSV files and returns structured, meaningful
-answers based on keyword matching. All numbers come directly from the CSVs.
+Uses relationship_table.csv (with group_type) and answers questions by:
+- extracting indep_var / horizon / group_type / group_label hints
+- retrieving matching rows
+- producing a natural-language decision-friendly response
+- ranking "most affecting" categories when asked
 """
 
 import pathlib
+import re
+from typing import Optional, List, Dict
+
 import pandas as pd
 
-# ── CSV loading ───────────────────────────────────────────────────────────────
+
+# ── Relationship table loading ────────────────────────────────────────────────
 _BASE_DIR = pathlib.Path(__file__).resolve().parent.parent.parent.parent  # Econex repo root
-_ARDL_DIR = _BASE_DIR / "ardloutputs"
 
-
-def _safe_load(path: pathlib.Path) -> pd.DataFrame | None:
-    try:
-        df = pd.read_csv(path)
-        print(f"[ai_service] Loaded {path.name} — {len(df)} rows")
-        return df
-    except Exception as e:
-        print(f"[ai_service] WARNING: Could not load {path}: {e}")
-        return None
-
-
-_short_df = _safe_load(_ARDL_DIR / "gdp_shortRun.csv")
-_long_df  = _safe_load(_ARDL_DIR / "gdp_longRun.csv")
-
-
-# ── Pre-compute impact scores from the CSVs once at startup ───────────────────
-def _compute_impacts() -> dict:
-    """
-    Derive human-readable impact percentages from ARDL coefficients.
-
-    Long-run impact share  = |long_run_effect| / sum(|long_run_effect|) * 100
-    Short-run impact share = |gdp_coef|        / sum(|gdp_coef|)        * 100
-    """
-    impacts = {}
-    if _long_df is not None and _short_df is not None:
-        # Long-run
-        lr = _long_df.copy()
-        lr["abs_effect"] = lr["long_run_effect"].abs()
-        total_lr = lr["abs_effect"].sum()
-        for _, row in lr.iterrows():
-            s = row["sector_name"]
-            impacts.setdefault(s, {})
-            impacts[s]["long_run_effect"]  = float(row["long_run_effect"])
-            impacts[s]["long_run_share"]   = round(float(row["abs_effect"]) / total_lr * 100, 1)
-            impacts[s]["long_run_aic"]     = float(row["aic"])
-            impacts[s]["long_run_bic"]     = float(row["bic"])
-            impacts[s]["n_obs"]            = int(row["n_obs"])
-
-        # Short-run
-        sr = _short_df.copy()
-        sr["abs_coef"] = sr["gdp_coef"].abs()
-        total_sr = sr["abs_coef"].sum()
-        for _, row in sr.iterrows():
-            s = row["sector_name"]
-            impacts.setdefault(s, {})
-            impacts[s]["short_run_coef"]   = float(row["gdp_coef"])
-            impacts[s]["short_run_share"]  = round(float(row["abs_coef"]) / total_sr * 100, 1)
-            impacts[s]["short_run_pvalue"] = float(row["gdp_pvalue"])
-            impacts[s]["short_run_aic"]    = float(row["aic"])
-            impacts[s]["short_run_bic"]    = float(row["bic"])
-            impacts[s]["short_sig"]        = row["gdp_pvalue"] < 0.05
-
-    return impacts
-
-
-_IMPACTS = _compute_impacts()
-
-# Pull out values for convenience
-_AGR = _IMPACTS.get("Agriculture", {})
-_IND = _IMPACTS.get("Industry",    {})
-_SRV = _IMPACTS.get("Services",    {})
-
-
-def _sig_label(is_sig: bool) -> str:
-    return "✅ Statistically significant (p < 0.05)" if is_sig else "⚠️ Not significant at 5% level"
-
-
-# ── Response builders (all numbers from CSV) ──────────────────────────────────
-
-def _resp_overview() -> str:
-    if not _IMPACTS:
-        return "⚠️ ARDL data not loaded. Please check the ardloutputs folder."
-    return (
-        "## GDP Sector Impact on RSUI — Overview\n\n"
-        "Based on ARDL model results (n = 23 observations):\n\n"
-
-        "### 📊 Long-Run Impact (relative contribution)\n"
-        f"| Sector | Long-run Effect | Impact Share |\n"
-        f"|---|---|---|\n"
-        f"| 🌾 Agriculture | {_AGR.get('long_run_effect', 0):.2f} | **{_AGR.get('long_run_share', 0)}%** |\n"
-        f"| 💼 Services    | {_SRV.get('long_run_effect', 0):.2f} | **{_SRV.get('long_run_share', 0)}%** |\n"
-        f"| 🏭 Industry    | {_IND.get('long_run_effect', 0):.2f} | **{_IND.get('long_run_share', 0)}%** |\n\n"
-
-        "### ⚡ Short-Run Coefficient (immediate RSUI sensitivity)\n"
-        f"| Sector | Coefficient | P-value | Significance |\n"
-        f"|---|---|---|---|\n"
-        f"| 🌾 Agriculture | {_AGR.get('short_run_coef', 0):.4f} | {_AGR.get('short_run_pvalue', 0):.4f} | {_sig_label(_AGR.get('short_sig', False))} |\n"
-        f"| 💼 Services    | {_SRV.get('short_run_coef', 0):.4f} | {_SRV.get('short_run_pvalue', 0):.4f} | {_sig_label(_SRV.get('short_sig', False))} |\n"
-        f"| 🏭 Industry    | {_IND.get('short_run_coef', 0):.4f} | {_IND.get('short_run_pvalue', 0):.4f} | {_sig_label(_IND.get('short_sig', False))} |\n\n"
-
-        "**Interpretation:** A negative coefficient means GDP growth in that sector is associated with a *decrease* in RSUI (less social unrest). "
-        "Agriculture has the largest long-run influence on social stability."
-    )
-
-
-def _resp_agriculture() -> str:
-    if not _AGR:
-        return "⚠️ Agriculture data not found in ARDL outputs."
-    return (
-        "## 🌾 Agriculture Sector — ARDL Impact on RSUI\n\n"
-
-        f"### Long-Run Impact\n"
-        f"- **Long-run effect:** {_AGR['long_run_effect']:.4f}\n"
-        f"- **Impact share:** **{_AGR['long_run_share']}%** of total sector influence on RSUI\n"
-        f"- **Model fit:** AIC = {_AGR['long_run_aic']:.2f} | BIC = {_AGR['long_run_bic']:.2f}\n\n"
-
-        f"### Short-Run Dynamics\n"
-        f"- **Short-run coefficient:** {_AGR['short_run_coef']:.4f}\n"
-        f"- **P-value:** {_AGR['short_run_pvalue']:.4f} — {_sig_label(_AGR['short_sig'])}\n\n"
-
-        "### Interpretation\n"
-        f"Agriculture accounts for **{_AGR['long_run_share']}%** of the combined long-run sector impact on RSUI. "
-        "The negative coefficient means that when agricultural GDP grows, the RSUI (social unrest index) tends to **decrease**. "
-        "This makes sense — rural income stability directly reduces economic stress and social unrest risk.\n\n"
-        f"Note: The short-run coefficient ({_AGR['short_run_coef']:.4f}) is {'' if _AGR['short_sig'] else 'not '}statistically significant, "
-        "suggesting the long-run structural relationship is stronger than the immediate year-to-year effect."
-    )
-
-
-def _resp_industry() -> str:
-    if not _IND:
-        return "⚠️ Industry data not found in ARDL outputs."
-    return (
-        "## 🏭 Industry Sector — ARDL Impact on RSUI\n\n"
-
-        f"### Long-Run Impact\n"
-        f"- **Long-run effect:** {_IND['long_run_effect']:.4f}\n"
-        f"- **Impact share:** **{_IND['long_run_share']}%** of total sector influence on RSUI\n"
-        f"- **Model fit:** AIC = {_IND['long_run_aic']:.2f} | BIC = {_IND['long_run_bic']:.2f}\n\n"
-
-        f"### Short-Run Dynamics\n"
-        f"- **Short-run coefficient:** {_IND['short_run_coef']:.4f}\n"
-        f"- **P-value:** {_IND['short_run_pvalue']:.4f} — {_sig_label(_IND['short_sig'])}\n\n"
-
-        "### Interpretation\n"
-        f"Industry accounts for **{_IND['long_run_share']}%** of the combined long-run sector impact on RSUI. "
-        "The short-run coefficient is the most statistically significant across all sectors (p = {:.4f}), "
-        "meaning industrial GDP fluctuations have an immediate and measurable effect on social unrest levels.".format(
-            _IND.get('short_run_pvalue', 0)
-        )
-    )
-
-
-def _resp_services() -> str:
-    if not _SRV:
-        return "⚠️ Services data not found in ARDL outputs."
-    return (
-        "## 💼 Services Sector — ARDL Impact on RSUI\n\n"
-
-        f"### Long-Run Impact\n"
-        f"- **Long-run effect:** {_SRV['long_run_effect']:.4f}\n"
-        f"- **Impact share:** **{_SRV['long_run_share']}%** of total sector influence on RSUI\n"
-        f"- **Model fit:** AIC = {_SRV['long_run_aic']:.2f} | BIC = {_SRV['long_run_bic']:.2f}\n\n"
-
-        f"### Short-Run Dynamics\n"
-        f"- **Short-run coefficient:** {_SRV['short_run_coef']:.4f}\n"
-        f"- **P-value:** {_SRV['short_run_pvalue']:.4f} — {_sig_label(_SRV['short_sig'])}\n\n"
-
-        "### Interpretation\n"
-        f"Services accounts for **{_SRV['long_run_share']}%** of the combined long-run sector impact on RSUI. "
-        "The services sector has a significant short-run relationship (p < 0.05), "
-        "reflecting how formal employment in services directly affects household economic stability."
-    )
-
-
-def _resp_comparison() -> str:
-    if not _IMPACTS:
-        return "⚠️ ARDL data not loaded."
-    # Rank sectors by long-run share
-    ranked = sorted(_IMPACTS.items(), key=lambda x: x[1].get("long_run_share", 0), reverse=True)
-    lines = ["## 📊 Sector Comparison — Long-Run Impact on RSUI\n"]
-    medals = ["🥇", "🥈", "🥉"]
-    for i, (sector, data) in enumerate(ranked):
-        icon = {"Agriculture": "🌾", "Industry": "🏭", "Services": "💼"}.get(sector, "📌")
-        medal = medals[i] if i < 3 else "  "
-        lines.append(
-            f"{medal} **{icon} {sector}** — Impact share: **{data.get('long_run_share', 0)}%**  "
-            f"| Long-run effect: `{data.get('long_run_effect', 0):.4f}`  "
-            f"| Short-run p-value: `{data.get('short_run_pvalue', 0):.4f}`"
-        )
-    lines.append(
-        "\n**Key takeaway:** Agriculture dominates the long-run relationship with RSUI, "
-        "while Industry shows the strongest short-run statistical significance."
-    )
-    return "\n".join(lines)
-
-
-def _resp_short_run_all() -> str:
-    if _short_df is None:
-        return "⚠️ Short-run data not loaded."
-    return (
-        "## ⚡ Short-Run ARDL Coefficients — All Sectors\n\n"
-        "These coefficients measure the **immediate year-to-year** effect of GDP sector growth on RSUI:\n\n"
-        f"| Sector | Coefficient | P-value | Significant? |\n"
-        f"|---|---|---|---|\n"
-        f"| 🌾 Agriculture | `{_AGR.get('short_run_coef', 0):.4f}` | `{_AGR.get('short_run_pvalue', 0):.4f}` | {'✅ Yes' if _AGR.get('short_sig') else '❌ No (p > 0.05)'} |\n"
-        f"| 💼 Services    | `{_SRV.get('short_run_coef', 0):.4f}` | `{_SRV.get('short_run_pvalue', 0):.4f}` | {'✅ Yes' if _SRV.get('short_sig') else '❌ No'} |\n"
-        f"| 🏭 Industry    | `{_IND.get('short_run_coef', 0):.4f}` | `{_IND.get('short_run_pvalue', 0):.4f}` | {'✅ Yes' if _IND.get('short_sig') else '❌ No'} |\n\n"
-        "A **negative coefficient** means GDP growth → RSUI decreases (less unrest).  \n"
-        "Industry has the most significant short-run effect (lowest p-value)."
-    )
-
-
-def _resp_long_run_all() -> str:
-    if _long_df is None:
-        return "⚠️ Long-run data not loaded."
-    return (
-        "## 📈 Long-Run ARDL Effects — All Sectors\n\n"
-        "These measure the **structural, sustained** effect of each GDP sector on RSUI over time:\n\n"
-        f"| Sector | Long-run Effect | Impact Share | AIC |\n"
-        f"|---|---|---|---|\n"
-        f"| 🌾 Agriculture | `{_AGR.get('long_run_effect', 0):.4f}` | **{_AGR.get('long_run_share', 0)}%** | {_AGR.get('long_run_aic', 0):.2f} |\n"
-        f"| 💼 Services    | `{_SRV.get('long_run_effect', 0):.4f}` | **{_SRV.get('long_run_share', 0)}%** | {_SRV.get('long_run_aic', 0):.2f} |\n"
-        f"| 🏭 Industry    | `{_IND.get('long_run_effect', 0):.4f}` | **{_IND.get('long_run_share', 0)}%** | {_IND.get('long_run_aic', 0):.2f} |\n\n"
-        "**Impact share** = each sector's absolute effect as a percentage of the total across all sectors.  \n"
-        f"Agriculture dominates with **{_AGR.get('long_run_share', 0)}%** of the combined long-run influence."
-    )
-
-
-def _resp_help() -> str:
-    agr_s = _AGR.get('long_run_share', 0)
-    ind_s = _IND.get('long_run_share', 0)
-    srv_s = _SRV.get('long_run_share', 0)
-    return (
-        "## 🧠 Econex AI — What I Can Tell You\n\n"
-        "I analyse ARDL (Autoregressive Distributed Lag) model results from your research data.\n\n"
-        "### Current Data Summary\n"
-        f"- 🌾 **Agriculture** impact on RSUI: **{agr_s}%** (long-run)\n"
-        f"- 💼 **Services** impact on RSUI: **{srv_s}%** (long-run)\n"
-        f"- 🏭 **Industry** impact on RSUI: **{ind_s}%** (long-run)\n\n"
-        "### Try asking:\n"
-        "- *\"Show agriculture impact\"*\n"
-        "- *\"Compare all sectors\"*\n"
-        "- *\"Short-run coefficients\"*\n"
-        "- *\"Long-run effects\"*\n"
-        "- *\"Industry analysis\"*\n"
-        "- *\"Services sector\"*\n"
-        "- *\"Which sector has highest impact?\"*"
-    )
-
-
-# ── Keyword-based router ──────────────────────────────────────────────────────
-
-_KEYWORD_MAP = [
-    # (keyword list, response function)
-    (["agriculture", "agr", "farming", "farm", "rural", "crop"],  _resp_agriculture),
-    (["industry", "ind", "manufacturing", "industrial"],           _resp_industry),
-    (["service", "srv", "tertiary"],                               _resp_services),
-    (["compare", "comparison", "all sector", "vs", "versus",
-      "which", "highest", "rank", "ranking", "overview"],         _resp_comparison),
-    (["short run", "short-run", "short_run", "coefficient",
-      "immediate", "coef"],                                        _resp_short_run_all),
-    (["long run", "long-run", "long_run", "long term",
-      "structural", "sustained"],                                  _resp_long_run_all),
-    (["gdp", "sector", "impact", "rsui", "unrest", "model",
-      "ardl", "result", "output"],                                 _resp_overview),
+_CANDIDATES = [
+    _BASE_DIR / "relationship_table.csv",  # ✅ your current location (repo root)
 ]
 
 
-def get_ai_response(message: str, history: list[dict] | None = None) -> str:
-    """
-    Pure CSV-driven response engine.
-    No OpenAI required. Matches keywords and returns real ARDL data.
-    """
-    q = message.lower().strip()
+def _load_relationship_table() -> pd.DataFrame:
+    for path in _CANDIDATES:
+        if path.exists():
+            df = pd.read_csv(path)
+            print(f"[ai_service] Loaded relationship_table.csv from: {path} — {len(df)} rows")
 
-    for keywords, fn in _KEYWORD_MAP:
-        if any(kw in q for kw in keywords):
-            return fn()
+            required = {"dep_var", "indep_var", "group_type", "group_label", "horizon", "description"}
+            missing = required - set(df.columns)
+            if missing:
+                raise ValueError(f"relationship_table.csv missing columns: {sorted(missing)}")
 
-    # Default: show help with current data summary
-    return _resp_help()
+            # Normalize to strings for safe matching
+            for c in ["dep_var", "indep_var", "group_type", "group_label", "horizon", "description", "source_file", "status"]:
+                if c in df.columns:
+                    df[c] = df[c].astype(str)
+
+            # Numeric columns (safe coercion)
+            for c in ["effect_value", "pvalue", "aic", "bic", "n_obs"]:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+
+            # Lowercase helper columns
+            df["_dep_l"] = df["dep_var"].str.lower()
+            df["_indep_l"] = df["indep_var"].str.lower()
+            df["_gtype_l"] = df["group_type"].str.lower()
+            df["_glabel_l"] = df["group_label"].str.lower()
+            df["_horizon_l"] = df["horizon"].str.lower()
+
+            return df
+
+    raise FileNotFoundError(
+        "[ai_service] Could not find relationship_table.csv. "
+        "Put it in the project root as relationship_table.csv."
+    )
+
+
+_REL = _load_relationship_table()
+
+
+# ── NLP helpers ───────────────────────────────────────────────────────────────
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip().lower())
+
+
+def _wants_details(q: str) -> bool:
+    qn = _norm(q)
+    return any(k in qn for k in [
+        "show details", "details", "numbers", "stats", "statistics",
+        "p value", "p-value", "coef", "coefficient", "aic", "bic"
+    ])
+
+
+def _extract_horizon(q: str) -> Optional[str]:
+    qn = _norm(q)
+    if "long run" in qn or "long-run" in qn or "longrun" in qn:
+        return "long_run"
+    if "short run" in qn or "short-run" in qn or "shortrun" in qn:
+        return "short_run"
+    return None
+
+
+def _default_horizon_if_relationship(q: str) -> Optional[str]:
+    """
+    If user says 'relationship/association/effect/impact/link' and does NOT
+    specify short/long run, default to long_run.
+    """
+    qn = _norm(q)
+    if any(k in qn for k in ["relationship", "relation", "association", "link", "impact", "effect", "influence"]):
+        return "long_run"
+    return None
+
+
+def _extract_indep(q: str) -> Optional[str]:
+    """
+    Map user words -> indep_var values in relationship_table.csv
+    Includes the typo 'expanditure' support.
+    """
+    qn = _norm(q)
+
+    synonyms = {
+        "unemployment": ["unemployment", "jobless", "joblessness"],
+        "government_expenditure": [
+            "government expenditure", "gov expenditure", "gov exp", "government exp",
+            "government spending", "public spending", "public expenditure",
+            "state spending", "state expenditure", "fiscal spending", "gov spending",
+            # ✅ typo support
+            "government expanditure", "public expanditure", "expanditure"
+        ],
+        "total_expenditure": ["total expenditure", "total government expenditure", "total gov expenditure", "overall expenditure"],
+        "wage": ["wage", "wages", "salary", "salaries"],
+        "gdp": ["gdp"],
+        "pce": ["pce", "consumption", "personal consumption", "consumption expenditure"],
+    }
+
+    for indep, keys in synonyms.items():
+        if any(k in qn for k in keys):
+            return indep
+
+    # fallback: if user types exact indep_var
+    for v in sorted(set(_REL["_indep_l"].tolist())):
+        if v and v in qn:
+            return v
+
+    return None
+
+
+def _is_compare_intent(q: str) -> bool:
+    qn = _norm(q)
+    return any(w in qn for w in [
+        "compare", "comparison", "rank", "ranking",
+        "top", "best", "worst", "highest", "lowest",
+        "strongest", "largest", "smallest"
+    ])
+
+
+def _is_top_impact_intent(q: str) -> bool:
+    qn = _norm(q)
+    return any(w in qn for w in [
+        "mostly affect", "affect the most", "affects the most",
+        "most affect", "most impact", "highest impact", "strongest impact",
+        "biggest impact", "which category", "which categories",
+        "which age group", "which age groups",
+        "which education", "which education levels",
+        "top categories", "top category", "top groups", "top group",
+        "rank categories", "rank groups",
+        "strongest effect", "largest effect"
+    ])
+
+
+def _extract_group_type(q: str, indep: Optional[str]) -> Optional[str]:
+    """
+    Match to your ACTUAL group_type values in relationship_table.csv:
+    - age_group
+    - edu
+    - exp_type
+    - category
+    - category_name
+    - sector_name
+    """
+    qn = _norm(q)
+
+    if "age" in qn:
+        return "age_group"
+
+    if "education" in qn or "edu" in qn:
+        return "edu"
+
+    # capital/recurrent are exp_type in your table
+    if "capital" in qn or "recurrent" in qn or "exp type" in qn or "expenditure type" in qn:
+        return "exp_type"
+
+    if "sector" in qn:
+        return "sector_name"
+
+    # category intent depends on variable
+    if "category" in qn or "categories" in qn or "by category" in qn:
+        if indep == "wage":
+            return "category_name"   # wages by category
+        return "category"            # pce categories + unemployment(total) category
+
+    return None
+
+
+def _humanize_indep(indep: str) -> str:
+    mapping = {
+        "unemployment": "unemployment",
+        "government_expenditure": "government expenditure",
+        "total_expenditure": "total government expenditure",
+        "wage": "wages",
+        "gdp": "GDP",
+        "pce": "PCE (consumption expenditure)",
+        "x": "the variable",
+    }
+    key = (indep or "").strip().lower()
+    return mapping.get(key, key.replace("_", " "))
+
+
+def _humanize_group_label(group_label: str) -> str:
+    g = (group_label or "").strip()
+    if not g:
+        return "the overall sample"
+    gl = g.replace("_", " ").strip()
+
+    # nicer age formatting if needed
+    gl2 = gl.lower()
+    gl2 = re.sub(r"(age)\s*(\d{1,2})[\s\-_]*(\d{1,2})", r"age group \2–\3", gl2)
+    return gl2
+
+
+def _format_details(row: dict) -> str:
+    parts = []
+    if pd.notna(row.get("effect_value", float("nan"))):
+        parts.append(f"effect={row['effect_value']:.6g}")
+    if pd.notna(row.get("pvalue", float("nan"))):
+        parts.append(f"p={row['pvalue']:.3g}")
+    if pd.notna(row.get("aic", float("nan"))):
+        parts.append(f"AIC={row['aic']}")
+    if pd.notna(row.get("bic", float("nan"))):
+        parts.append(f"BIC={row['bic']}")
+    if pd.notna(row.get("n_obs", float("nan"))):
+        parts.append(f"n={int(row['n_obs'])}")
+    if row.get("source_file"):
+        parts.append(f"source={row['source_file']}")
+    return " | ".join(parts)
+
+
+def naturalize_row(row: dict, show_stats: bool = False) -> str:
+    indep_key = str(row.get("indep_var", "x"))
+    indep = _humanize_indep(indep_key)
+
+    group = _humanize_group_label(str(row.get("group_label", "")))
+    horizon = str(row.get("horizon", "")).replace("_", " ").strip().lower() or "result"
+
+    coef = row.get("effect_value", float("nan"))
+    pval = row.get("pvalue", float("nan"))
+
+    # Direction + plain takeaway
+    if pd.notna(coef) and coef > 0:
+        direction = "RSUI tends to go **up**"
+        takeaway = f"When **{indep}** increases, RSUI increases (for **{group}**)."
+        decision = f"If the goal is to reduce RSUI, this model suggests **reducing {indep}** (for **{group}**)."
+    elif pd.notna(coef) and coef < 0:
+        direction = "RSUI tends to go **down**"
+        takeaway = f"When **{indep}** increases, RSUI decreases (for **{group}**)."
+        # Avoid giving weird recommendations like "increase unemployment"
+        if indep_key.lower() == "unemployment":
+            decision = "This direction can be counterintuitive for unemployment; treat it as model-based correlation and validate with more checks."
+        else:
+            decision = f"If the goal is to reduce RSUI, this model suggests **increasing {indep}** would be associated with lower RSUI (interpret carefully)."
+    else:
+        direction = "there is **no clear direction**"
+        takeaway = f"No clear direction between **{indep}** and RSUI (for **{group}**)."
+        decision = "Treat this as weak/unclear evidence."
+
+    # Confidence
+    if pd.notna(pval):
+        if pval < 0.01:
+            conf = "High confidence (statistically strong)."
+        elif pval < 0.05:
+            conf = "Moderate confidence (statistically significant)."
+        else:
+            conf = "Low confidence (not statistically strong)."
+    else:
+        conf = "Confidence unknown (p-values not provided in this result file)."
+
+    if "low confidence" in conf.lower() or "unknown" in conf.lower():
+        decision2 = "Decision tip: use this as **directional** insight and confirm with diagnostics / additional models."
+    else:
+        decision2 = f"Decision tip: {decision}"
+
+    msg = (
+        f"**{horizon.title()} insight**\n"
+        f"- For **{group}**, {direction} when **{indep}** changes.\n"
+        f"- Confidence: **{conf}**\n"
+        f"- {decision2}\n"
+        f"- Plain takeaway: **{takeaway}**"
+    )
+
+    if show_stats:
+        details = _format_details(row)
+        if details:
+            msg += f"\n\n**Details:** {details}"
+    else:
+        msg += "\n\n(If you want the numbers, say **show details**.)"
+
+    return msg
+
+
+# ── Retrieval / ranking ───────────────────────────────────────────────────────
+def _filter(dep: str = "rsui",
+            indep: Optional[str] = None,
+            horizon: Optional[str] = None,
+            group_type: Optional[str] = None,
+            group_hint: Optional[str] = None) -> pd.DataFrame:
+    df = _REL[_REL["_dep_l"] == dep.lower()].copy()
+
+    if indep:
+        df = df[df["_indep_l"] == indep.lower()]
+    if horizon:
+        df = df[df["_horizon_l"] == horizon.lower()]
+    if group_type:
+        df = df[df["_gtype_l"] == group_type.lower()]
+    if group_hint:
+        gh = _norm(group_hint)
+        df = df[df["_glabel_l"].apply(lambda x: gh in _norm(x))]
+
+    return df
+
+
+def _rank_most_affecting(df: pd.DataFrame, k: int = 5) -> pd.DataFrame:
+    out = df.copy()
+    out["abs_effect"] = out["effect_value"].abs()
+
+    out["sig_flag"] = out["pvalue"].apply(lambda p: 1 if pd.notna(p) and p < 0.05 else 0)
+    out = out.sort_values(["sig_flag", "abs_effect"], ascending=[False, False], na_position="last")
+    return out.head(k)
+
+
+def _help_text() -> str:
+    indeps = ", ".join(sorted(set(_REL["indep_var"].str.lower())))
+    gtypes = ", ".join(sorted(set(_REL["group_type"].str.lower())))
+    horizons = ", ".join(sorted(set(_REL["horizon"].str.lower())))
+    return (
+        "Try asking:\n"
+        "- relationship between government expenditure and rsui\n"
+        "- relationship between gov spending and rsui short run capital\n"
+        "- compare government expenditure long run\n"
+        "- which age groups mostly affect rsui for unemployment\n"
+        "- top education categories affecting rsui unemployment\n"
+        "- which pce categories affect rsui the most\n"
+        "- wages by category strongest impact\n\n"
+        f"Available variables: {indeps}\n"
+        f"Available group types: {gtypes}\n"
+        f"Available horizons: {horizons}"
+    )
+
+
+# ── Main function used by router ──────────────────────────────────────────────
+def get_ai_response(message: str, history: Optional[List[Dict[str, str]]] = None) -> str:
+    q = message or ""
+    qn = _norm(q)
+
+    indep = _extract_indep(q)
+    horizon = _extract_horizon(q) or _default_horizon_if_relationship(q)
+    show_stats = _wants_details(q)
+
+    group_type = _extract_group_type(q, indep)
+
+    # Group label hint: keep remaining tokens as a weak substring hint
+    cleaned = qn
+    for token in [
+        "rsui", "relationship", "relation", "association", "link", "impact", "effect", "influence",
+        "between", "and", "with", "vs", "versus",
+        "long run", "long-run", "short run", "short-run",
+        "compare", "comparison", "rank", "ranking",
+        "top", "best", "worst", "highest", "lowest", "strongest",
+        "show details", "details", "numbers", "stats", "statistics",
+        "mostly affect", "affect the most", "most impact", "highest impact", "strongest impact",
+        "which category", "which categories", "which age group", "which age groups", "which education"
+    ]:
+        cleaned = cleaned.replace(token, " ")
+
+    # remove indep synonyms (keep conservative; don't strip "capital"/"recurrent")
+    for token in [
+        "unemployment", "jobless",
+        "government expenditure", "gov expenditure", "gov exp", "government spending", "public spending", "public expenditure",
+        "government expanditure", "public expanditure", "expanditure",
+        "total expenditure", "wage", "salary", "gdp", "pce", "consumption"
+    ]:
+        cleaned = cleaned.replace(token, " ")
+
+    group_hint = _norm(cleaned)
+    if len(group_hint) < 2:
+        group_hint = None
+
+    # Initial filter
+    df = _filter(dep="rsui", indep=indep, horizon=horizon, group_type=group_type, group_hint=group_hint)
+
+    # Relax group_hint first
+    if df.empty and group_hint:
+        df = _filter(dep="rsui", indep=indep, horizon=horizon, group_type=group_type, group_hint=None)
+
+    # Relax group_type if mismatch
+    if df.empty and group_type:
+        df = _filter(dep="rsui", indep=indep, horizon=horizon, group_type=None, group_hint=group_hint)
+
+    # Relax horizon if still empty
+    if df.empty and horizon:
+        df = _filter(dep="rsui", indep=indep, horizon=None, group_type=group_type, group_hint=group_hint)
+
+    if df.empty:
+        return "I couldn't find a matching result in relationship_table.csv.\n\n" + _help_text()
+
+    # ── "Most affect / top categories" intent ────────────────────────────────
+    if _is_top_impact_intent(q):
+        ranked = _rank_most_affecting(df, k=5)
+
+        title_bits = []
+        if indep:
+            title_bits.append(_humanize_indep(indep))
+        if group_type:
+            title_bits.append(group_type.replace("_", " "))
+        if horizon:
+            title_bits.append(horizon.replace("_", " "))
+
+        title = " / ".join(title_bits) if title_bits else "results"
+
+        lines = [f"**Top groups/categories that affect RSUI most ({title}):**"]
+        for _, r in ranked.iterrows():
+            row = r.to_dict()
+            lines.append(f"\n**{row.get('group_label','')}**\n{naturalize_row(row, show_stats=show_stats)}")
+        return "\n".join(lines)
+
+    # ── Compare intent (rank by significance then effect size) ───────────────
+    if _is_compare_intent(q):
+        ranked = _rank_most_affecting(df, k=5)
+        lines = ["**Comparison (ranked by confidence then effect size):**"]
+        for _, r in ranked.iterrows():
+            row = r.to_dict()
+            lines.append(f"\n**{row.get('group_label','')}**\n{naturalize_row(row, show_stats=show_stats)}")
+        return "\n".join(lines)
+
+    # ── Single best row ──────────────────────────────────────────────────────
+    out = df.copy()
+    out["p_rank"] = out["pvalue"].fillna(999999)
+    out["abs_effect"] = out["effect_value"].abs()
+    out = out.sort_values(["p_rank", "abs_effect"], ascending=[True, False], na_position="last")
+
+    best = out.iloc[0].to_dict()
+    return naturalize_row(best, show_stats=show_stats)

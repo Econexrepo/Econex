@@ -138,11 +138,29 @@ async def send_message(
 
 def _detect_tag(text: str) -> str:
     t = text.lower()
-    if "gdp" in t or "sector" in t:        return "GDP"
-    if "wage" in t or "salary" in t:       return "Wages"
-    if "unemploy" in t or "job" in t:      return "Unemployment"
-    if "agricult" in t or "farm" in t:     return "Agriculture"
-    if "consumption" in t or "pce" in t:   return "PCE"
-    if "rsui" in t or "unrest" in t:       return "RSUI"
-    if "predict" in t or "forecast" in t:  return "Prediction"
+    if (
+        "gov" in t
+        or "government expenditure" in t
+        or "public expenditure" in t
+        or "government expanditure" in t
+        or "expanditure" in t
+        or "spending" in t
+    ):
+        return "Gov Expenditure"
+    if "education" in t or "edu" in t:
+        return "Education"
+    if "age" in t or "age group" in t:
+        return "Age Groups"
+    if "gdp" in t or "sector" in t:
+        return "GDP"
+    if "wage" in t or "salary" in t:
+        return "Wages"
+    if "unemploy" in t or "job" in t:
+        return "Unemployment"
+    if "consumption" in t or "pce" in t:
+        return "PCE"
+    if "rsui" in t or "unrest" in t:
+        return "RSUI"
+    if "predict" in t or "forecast" in t:
+        return "Prediction"
     return ""
