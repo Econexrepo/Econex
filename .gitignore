@@ -93,3 +93,11 @@ ehthumbs.db
 .cache/
 tmp/
 temp/
+
+# ── Econex project-specific ────────────────────────────────────────
+# User-uploaded files (avatars, etc.) – keep folder structure via .gitkeep
+backend/uploads/*
+!backend/uploads/**/.gitkeep
+
+# Generated ARDL model output CSVs (runtime artifacts)
+ardloutputs/*.csv

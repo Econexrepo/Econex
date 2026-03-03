@@ -79,7 +79,28 @@
   color: var(--accent);
 }
 
-.avatar-btn--outline:hover { background: #eff6ff; }
+.avatar-btn--outline:hover:not(:disabled) { background: #eff6ff; }
+.avatar-btn--outline:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.avatar-btn--danger  { color: #dc2626; }
+.avatar-btn--danger:hover:not(:disabled) { background: #fef2f2; border-color: #fca5a5; }
+
+/* Uploading overlay on avatar */
+.avatar--uploading { position: relative; opacity: 0.7; }
+
+.avatar-spinner {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,.3);
+  border-top-color: #fff;
+  animation: spin .7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.avatar-msg { margin: -0.5rem 0 0.75rem; }
+
 
 .settings-divider {
   border: none;
@@ -125,6 +146,14 @@
 
 .single-input, .full-input { flex: 1; }
 
+/* input-group: stacks input + error message vertically */
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 1;
+}
+
 .settings-form input {
   width: 100%;
   padding: 0.6rem 0.85rem;
@@ -135,14 +164,54 @@
   background: var(--card-bg);
   outline: none;
   transition: border-color .2s;
+  box-sizing: border-box;
 }
 
-.settings-form input:focus { border-color: var(--primary); }
+.settings-form input:focus  { border-color: var(--primary); }
+.settings-form input.input--error { border-color: #dc2626; }
 .settings-form input:disabled {
   background: var(--content-bg);
   color: var(--text-sub);
   cursor: not-allowed;
 }
+
+/* Inline per-field error text */
+.field-error {
+  font-size: 0.78rem;
+  color: #dc2626;
+  margin-top: 0.1rem;
+}
+
+/* Required asterisk */
+.required-star { color: #dc2626; margin-left: 2px; }
+
+/* ── Password input wrapper (eye toggle) ────────────────────────────────────── */
+.pw-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.pw-input-wrap input {
+  padding-right: 2.5rem;   /* room for the eye button */
+}
+
+.pw-eye-btn {
+  position: absolute;
+  right: 0.65rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-sub);
+  display: flex;
+  align-items: center;
+  transition: color .15s;
+}
+
+.pw-eye-btn:hover { color: var(--primary); }
+
 
 .settings-success {
   background: #ecfdf5;

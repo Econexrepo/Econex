@@ -5,6 +5,7 @@ Econex Backend – FastAPI Entry Point
 import pathlib
 import pandas as pd
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, dashboard, chat, settings
@@ -38,6 +39,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Static files (uploaded avatars) ───────────────────────────────────────────
+_UPLOADS_DIR = pathlib.Path(__file__).resolve().parent / "uploads"
+_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+("_UPLOADS_DIR" and (_UPLOADS_DIR / "avatars").mkdir(parents=True, exist_ok=True))
+app.mount("/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
 
 # ── Routers ────────────────────────────────────────────────────────────────────
 app.include_router(auth.router,      prefix="/api/auth",      tags=["Auth"])
