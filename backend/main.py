@@ -9,6 +9,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, dashboard, chat, settings
+from dotenv import load_dotenv
+
+
+load_dotenv()  # loads .env into os.environ
 
 # ── CSV paths ──────────────────────────────────────────────────────────────────
 _BASE_DIR = pathlib.Path(__file__).resolve().parent.parent   # Econex repo root

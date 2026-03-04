@@ -46,8 +46,12 @@ def _generate_reset_code() -> str:
 
 
 # ── Password helpers ─────────────────────────────────────────
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+def _prehash_password(password: str) -> str:
+    """
+    Convert arbitrary-length password into fixed-length material to avoid
+    bcrypt's 72-byte input limit permanently.
+    """
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
 def hash_password(plain: str) -> str:
@@ -75,6 +79,7 @@ def verify_and_maybe_migrate_password(plain: str, stored_hash: str):
         return True, pwd_context.hash(_prehash_password(plain))
 
     return False, None
+
 
 def verify_password(plain: str, stored_hash: str) -> bool:
     """
@@ -219,12 +224,11 @@ async def login(
 
     # If this user was using the old hashing scheme, upgrade it silently
     if new_hash:
-        with engine.connect() as conn:
-            conn.execute(
-                text("UPDATE users SET hashed_password = :pw WHERE id = :id"),
-                {"pw": new_hash, "id": str(row[0])},
-            )
-            conn.commit()
+        db.execute(
+            text("UPDATE users SET hashed_password = :pw WHERE id = :id"),
+            {"pw": new_hash, "id": str(row[0])},
+        )
+        db.commit()
 
     # Use 30-day expiry when remember_me is requested, else 60-minute default
     expire_minutes = (
