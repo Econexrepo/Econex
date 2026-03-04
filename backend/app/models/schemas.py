@@ -1,16 +1,44 @@
-from pydantic import BaseModel, EmailStr
+import re
 from typing import Optional
+from pydantic import BaseModel, EmailStr, field_validator
+
+
+def _validate_strong_password(v: str) -> str:
+    """Enforce NIST / OWASP-aligned password rules:
+    - Minimum 8 characters
+    - At least one uppercase letter  (A-Z)
+    - At least one lowercase letter  (a-z)
+    - At least one digit             (0-9)
+    - At least one special character (!@#$%^&* …)
+    """
+    if len(v) < 8:
+        raise ValueError('Password must be at least 8 characters long.')
+    if not re.search(r'[A-Z]', v):
+        raise ValueError('Password must contain at least one uppercase letter.')
+    if not re.search(r'[a-z]', v):
+        raise ValueError('Password must contain at least one lowercase letter.')
+    if not re.search(r'\d', v):
+        raise ValueError('Password must contain at least one digit.')
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>\[\]\'\\/_+=;`~\-]', v):
+        raise ValueError('Password must contain at least one special character (e.g. !@#$%^&*).')
+    return v
 
 
 class LoginRequest(BaseModel):
     email: str
     password: str
+    remember_me: bool = False   # when True, backend issues a 30-day JWT
 
 
 class RegisterRequest(BaseModel):
     name: str
     email: str
     password: str
+
+    @field_validator('password')
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        return _validate_strong_password(v)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -21,6 +49,11 @@ class ResetPasswordRequest(BaseModel):
     email: str
     code: str
     new_password: str
+
+    @field_validator('new_password')
+    @classmethod
+    def new_password_strength(cls, v: str) -> str:
+        return _validate_strong_password(v)
 
 
 class TokenResponse(BaseModel):
@@ -48,6 +81,11 @@ class UpdateProfileRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password:     str
+
+    @field_validator('new_password')
+    @classmethod
+    def new_password_strength(cls, v: str) -> str:
+        return _validate_strong_password(v)
 
 
 class AvatarUpdateRequest(BaseModel):
