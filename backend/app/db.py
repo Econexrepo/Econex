@@ -1,32 +1,73 @@
+# app/db.py
+
 import os
 from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 
 load_dotenv()
 
-_engine = None  # singleton engine
+# -------------------------------------------------------------------
+# ENV VARIABLES
+# -------------------------------------------------------------------
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+WAREHOUSE_DATABASE_URL = os.getenv("WAREHOUSE_DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError("Missing DATABASE_URL in .env")
+
+if not WAREHOUSE_DATABASE_URL:
+    raise RuntimeError("Missing WAREHOUSE_DATABASE_URL in .env")
+
+# -------------------------------------------------------------------
+# AUTH DATABASE (LOGIN / USERS)
+# -------------------------------------------------------------------
+
+auth_engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+)
+
+AuthSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=auth_engine,
+)
+
+def get_auth_db():
+    db = AuthSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# -------------------------------------------------------------------
+# DATA WAREHOUSE DATABASE (ANALYTICS)
+# -------------------------------------------------------------------
+
+warehouse_engine = create_engine(
+    WAREHOUSE_DATABASE_URL,
+    pool_pre_ping=True,
+)
+
+WarehouseSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=warehouse_engine,
+)
+
+def get_warehouse_db():
+    db = WarehouseSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# -------------------------------------------------------------------
+# BACKWARD COMPATIBILITY
+# (so existing auth code using get_engine() still works)
+# -------------------------------------------------------------------
 
 def get_engine():
-    """
-    Create ONE SQLAlchemy engine for the whole app (singleton).
-    Keeps connections low to avoid Supabase pooler 'max clients reached'.
-    """
-    global _engine
-
-    if _engine is not None:
-        return _engine
-
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("Missing DATABASE_URL in .env")
-
-    _engine = create_engine(
-        database_url,
-        pool_pre_ping=True,
-        pool_size=2,        # keep small for Supabase pooler
-        max_overflow=0,     # never exceed pool_size
-        pool_timeout=30,    # wait up to 30s for a connection
-        pool_recycle=1800,  # recycle idle conns (helps with cloud DBs)
-    )
-    return _engine
+    return auth_engine
