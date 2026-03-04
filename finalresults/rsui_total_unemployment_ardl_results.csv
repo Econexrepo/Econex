@@ -1,0 +1,2 @@
+tot_category_label,n_obs,status,rsui_adf_p,unemp_adf_p,aic,bic,unemp_coef,unemp_pvalue
+Total Unemployment,21,OK,1.0,3.9173423212020246e-16,311.2969575044322,317.56409213077274,-180.57470670304357,0.29382594925875477

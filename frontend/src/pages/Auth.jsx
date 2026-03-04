@@ -2,8 +2,47 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../api/axios'
-import { FiEye, FiEyeOff, FiArrowLeft } from 'react-icons/fi'
+import { FiEye, FiEyeOff, FiArrowLeft, FiCheck, FiX } from 'react-icons/fi'
 import './Auth.css'
+
+// ── Password rule checker ──────────────────────────────────────────────────────
+const PASSWORD_RULES = [
+  { id: 'len',     label: 'At least 8 characters',         test: v => v.length >= 8 },
+  { id: 'upper',   label: 'One uppercase letter (A-Z)',     test: v => /[A-Z]/.test(v) },
+  { id: 'lower',   label: 'One lowercase letter (a-z)',     test: v => /[a-z]/.test(v) },
+  { id: 'digit',   label: 'One number (0-9)',               test: v => /\d/.test(v) },
+  { id: 'special', label: 'One special character (!@#…)',   test: v => /[!@#$%^&*(),.?":{}|<>\[\]'\\/_+=;`~\-]/.test(v) },
+]
+
+function getStrength(pw) {
+  return PASSWORD_RULES.filter(r => r.test(pw)).length   // 0-5
+}
+
+function PasswordStrength({ password }) {
+  if (!password) return null
+  const score      = getStrength(password)
+  const label      = ['', 'Very weak', 'Weak', 'Fair', 'Good', 'Strong'][score]
+  const colorClass = ['', 'pw-s1', 'pw-s2', 'pw-s3', 'pw-s4', 'pw-s5'][score]
+
+  return (
+    <div className="pw-strength">
+      <div className="pw-bars">
+        {[1,2,3,4,5].map(i => (
+          <div key={i} className={`pw-bar ${score >= i ? colorClass : ''}`} />
+        ))}
+        <span className={`pw-label ${colorClass}`}>{label}</span>
+      </div>
+      <ul className="pw-rules">
+        {PASSWORD_RULES.map(r => (
+          <li key={r.id} className={r.test(password) ? 'pw-rule--ok' : 'pw-rule--fail'}>
+            {r.test(password) ? <FiCheck size={11} /> : <FiX size={11} />}
+            {r.label}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 // ── Shared input with password toggle ────────────────────────────────────────
 function PasswordInput({ id, value, onChange, placeholder = '••••••••', label }) {
@@ -59,7 +98,7 @@ function LoginView({ goSignup, goForgot }) {
     setError('')
     setLoading(true)
     try {
-      await login(email, password)
+      await login(email, password, remember)    // pass remember flag
       navigate('/dashboard', { replace: true })
     } catch (err) {
       setError(err.response?.data?.detail || 'Invalid credentials. Please try again.')
@@ -134,6 +173,11 @@ function SignupView({ goLogin }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!agreed) { setError('You must agree to the terms & policy.'); return }
+    // Frontend password strength check before hitting the API
+    if (getStrength(password) < 5) {
+      setError('Please choose a stronger password that meets all the requirements below.')
+      return
+    }
     setError('')
     setLoading(true)
     try {
@@ -181,6 +225,7 @@ function SignupView({ goLogin }) {
           value={password}
           onChange={e => setPassword(e.target.value)}
         />
+        <PasswordStrength password={password} />
 
         <label className="auth-checkbox">
           <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} />
@@ -306,6 +351,11 @@ function VerifyView({ goLogin, resetEmail }) {
     const fullCode = code.join('')
     if (fullCode.length < 6) { setError('Please enter the full 6-digit code.'); return }
     if (!newPassword)         { setError('Please enter a new password.'); return }
+    // Frontend password strength check
+    if (getStrength(newPassword) < 5) {
+      setError('Please choose a stronger password that meets all the requirements below.')
+      return
+    }
     setError('')
     setLoading(true)
     try {
@@ -317,9 +367,7 @@ function VerifyView({ goLogin, resetEmail }) {
       setSuccess('Password reset successfully! Redirecting to login…')
       setTimeout(() => goLogin(), 1600)
     } catch (err) {
-      // Demo fallback
-      setSuccess('Password reset successfully! Redirecting to login…')
-      setTimeout(() => goLogin(), 1600)
+      setError(err.response?.data?.detail || 'Reset failed. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -365,6 +413,7 @@ function VerifyView({ goLogin, resetEmail }) {
           onChange={e => setNewPassword(e.target.value)}
           placeholder="Enter new password"
         />
+        <PasswordStrength password={newPassword} />
 
         <ErrorMsg  msg={error} />
         <SuccessMsg msg={success} />
