@@ -12,7 +12,7 @@ from app.routers import auth, dashboard, chat, settings
 
 # ── CSV paths ──────────────────────────────────────────────────────────────────
 _BASE_DIR = pathlib.Path(__file__).resolve().parent.parent   # Econex repo root
-_ARDL_DIR = _BASE_DIR / "ardloutputs"
+_ARDL_DIR = _BASE_DIR / "finalresults"
 
 try:
     short_run_df = pd.read_csv(_ARDL_DIR / "gdp_shortRun.csv")

@@ -14,7 +14,11 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from sqlalchemy import text
 
 from app.db import get_engine
-from app.routers.auth import get_current_user, verify_password, hash_password
+from app.routers.auth import (
+    get_current_user,
+    hash_password,
+    verify_and_maybe_migrate_password,
+)
 from app.models.schemas import (
     UserOut,
     UpdateProfileRequest,
@@ -157,31 +161,36 @@ async def change_password(
             {"email": current_user.email},
         ).fetchone()
 
-        if not row:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
-        # ── Verify current password ──────────────────────────────────────────
-        if not verify_password(body.current_password, row[0]):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Current password is incorrect.",
-            )
+    # ── Verify current password (migration-aware) ────────────────────────────
+    ok, migrated_hash = verify_and_maybe_migrate_password(body.current_password, row[0])
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect.",
+        )
 
-        # ── Reject if new password is same as old ────────────────────────────
-        if body.new_password == body.current_password:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="New password must be different from the current password.",
-            )
+    # ── Reject if new password is same as old ────────────────────────────────
+    if body.new_password == body.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from the current password.",
+        )
 
-        # ── Minimum length ───────────────────────────────────────────────────
-        if len(body.new_password) < 8:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="New password must be at least 8 characters long.",
-            )
+    # ── Minimum length ───────────────────────────────────────────────────────
+    if len(body.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 8 characters long.",
+        )
 
-        new_hash = hash_password(body.new_password)
+    # New password always stored using the new safe scheme
+    new_hash = hash_password(body.new_password)
+
+    # If user had old-style hash, we still overwrite it anyway with new_hash.
+    with engine.connect() as conn:
         conn.execute(
             text(
                 """
@@ -332,4 +341,3 @@ async def upload_avatar(
         phone=row[4],
         avatar_url=avatar_url,
     )
-

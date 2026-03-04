@@ -4,6 +4,7 @@ Uses Supabase PostgreSQL via SQLAlchemy (db.py is NOT modified).
 """
 
 import uuid, random, string
+import hashlib
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, status, Depends
@@ -50,12 +51,47 @@ def _generate_reset_code() -> str:
 
 
 # ── Helper: password utilities ─────────────────────────────────────────────────
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+def _prehash_password(password: str) -> str:
+    """
+    Convert arbitrary-length password into fixed-length material to avoid
+    bcrypt's 72-byte input limit permanently.
+    """
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
 def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+    """
+    New scheme: bcrypt(sha256(password))
+    """
+    return pwd_context.hash(_prehash_password(plain))
+
+
+def verify_and_maybe_migrate_password(plain: str, stored_hash: str):
+    """
+    Seamless migration:
+      - New: bcrypt(sha256(password))
+      - Old: bcrypt(password)
+
+    Returns: (ok: bool, new_hash: str | None)
+      - If new_hash is not None, caller should update DB.
+    """
+    # Try new scheme first
+    if pwd_context.verify(_prehash_password(plain), stored_hash):
+        return True, None
+
+    # Fallback: old scheme for existing users
+    if pwd_context.verify(plain, stored_hash):
+        return True, pwd_context.hash(_prehash_password(plain))
+
+    return False, None
+
+def verify_password(plain: str, stored_hash: str) -> bool:
+    """
+    Backwards-compatible helper for other routers (e.g., settings.py).
+    Uses migration-aware verification.
+    """
+    ok, _ = verify_and_maybe_migrate_password(plain, stored_hash)
+    return ok
 
 
 # ── JWT ────────────────────────────────────────────────────────────────────────
@@ -155,11 +191,27 @@ async def login(body: LoginRequest):
             {"email": body.email},
         ).fetchone()
 
-    if not row or not verify_password(body.password, row[6]):
+    if not row:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
+
+    ok, new_hash = verify_and_maybe_migrate_password(body.password, row[6])
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+
+    # If this user was using the old hashing scheme, upgrade it silently
+    if new_hash:
+        with engine.connect() as conn:
+            conn.execute(
+                text("UPDATE users SET hashed_password = :pw WHERE id = :id"),
+                {"pw": new_hash, "id": str(row[0])},
+            )
+            conn.commit()
 
     # Use 30-day expiry when remember_me is requested, else 60-minute default
     expire_minutes = (
