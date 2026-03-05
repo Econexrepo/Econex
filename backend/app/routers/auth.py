@@ -59,11 +59,10 @@ def hash_password(plain: str) -> str:
 
 
 # ── JWT ────────────────────────────────────────────────────────────────────────
-def create_access_token(data: dict) -> str:
+def create_access_token(data: dict, expire_minutes: int | None = None) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
-    )
+    minutes = expire_minutes if expire_minutes is not None else settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    expire = datetime.now(timezone.utc) + timedelta(minutes=minutes)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
@@ -162,7 +161,12 @@ async def login(body: LoginRequest):
             detail="Invalid email or password",
         )
 
-    token = create_access_token({"sub": row[2]})
+    # Use 30-day expiry when remember_me is requested, else 60-minute default
+    expire_minutes = (
+        settings.REMEMBER_ME_EXPIRE_MINUTES if body.remember_me
+        else settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    )
+    token = create_access_token({"sub": row[2]}, expire_minutes=expire_minutes)
     return TokenResponse(
         access_token=token,
         user=UserOut(
