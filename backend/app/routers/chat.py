@@ -1,9 +1,13 @@
-"""
-Chat router – AI response endpoint and session management
-"""
+from __future__ import annotations
+
 import uuid
 from datetime import datetime, timezone
+import pathlib
+from typing import Optional
+
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
+
 from app.routers.auth import get_current_user
 from app.models.schemas import UserOut, ChatMessageIn, ChatMessageOut
 from app.services.ai_service import get_ai_response
@@ -11,8 +15,43 @@ from app.services.ai_service import get_ai_response
 router = APIRouter()
 
 # In-memory session store keyed by user_id → list of sessions
-# Replace with DB persistence in production
 _sessions: dict[str, list] = {}
+
+
+# -----------------------------------------------------------------------------
+# Dynamic tag vocab from relationship_table.csv (UI only)
+# -----------------------------------------------------------------------------
+def _find_relationship_table() -> Optional[pathlib.Path]:
+    here = pathlib.Path(__file__).resolve()
+    for parent in [here.parent] + list(here.parents)[:8]:
+        p = parent / "relationship_table.csv"
+        if p.exists():
+            return p
+    p = pathlib.Path.cwd() / "relationship_table.csv"
+    if p.exists():
+        return p
+    return None
+
+
+_REL_TAG = pd.DataFrame()
+try:
+    p = _find_relationship_table()
+    if p:
+        _REL_TAG = pd.read_csv(p)
+except Exception:
+    _REL_TAG = pd.DataFrame()
+
+INDEP_KEYWORDS = set()
+GROUPTYPE_KEYWORDS = set()
+GROUPLABEL_KEYWORDS = set()
+
+if not _REL_TAG.empty:
+    if "indep_var" in _REL_TAG.columns:
+        INDEP_KEYWORDS = set(_REL_TAG["indep_var"].astype(str).str.lower().str.strip())
+    if "group_type" in _REL_TAG.columns:
+        GROUPTYPE_KEYWORDS = set(_REL_TAG["group_type"].astype(str).str.lower().str.strip())
+    if "group_label" in _REL_TAG.columns:
+        GROUPLABEL_KEYWORDS = set(_REL_TAG["group_label"].astype(str).str.lower().str.strip())
 
 
 def _get_user_sessions(user_id: str) -> list:
@@ -47,11 +86,7 @@ def _get_user_sessions(user_id: str) -> list:
 @router.get("/sessions")
 async def list_sessions(current_user: UserOut = Depends(get_current_user)):
     sessions = _get_user_sessions(current_user.id)
-    # Return without full messages for the list view
-    return [
-        {k: v for k, v in s.items() if k != "messages"}
-        for s in sessions
-    ]
+    return [{k: v for k, v in s.items() if k != "messages"} for s in sessions]
 
 
 @router.get("/sessions/{session_id}")
@@ -112,8 +147,11 @@ async def send_message(
     }
     session["messages"].append(user_msg)
 
-    # Generate AI response using CSV-driven keyword engine
-    ai_content = get_ai_response(body.message)
+    ai_content = get_ai_response(
+        body.message,
+        history=session["messages"],
+        session_id=session["id"],
+    )
 
     ai_msg = {
         "role": "assistant",
@@ -137,30 +175,37 @@ async def send_message(
 
 
 def _detect_tag(text: str) -> str:
-    t = text.lower()
-    if (
-        "gov" in t
-        or "government expenditure" in t
-        or "public expenditure" in t
-        or "government expanditure" in t
-        or "expanditure" in t
-        or "spending" in t
-    ):
-        return "Gov Expenditure"
-    if "education" in t or "edu" in t:
-        return "Education"
-    if "age" in t or "age group" in t:
-        return "Age Groups"
-    if "gdp" in t or "sector" in t:
-        return "GDP"
-    if "wage" in t or "salary" in t:
-        return "Wages"
-    if "unemploy" in t or "job" in t:
-        return "Unemployment"
-    if "consumption" in t or "pce" in t:
-        return "PCE"
-    if "rsui" in t or "unrest" in t:
+    """
+    Dynamic tag detection (UI-only). Uses relationship_table.csv vocab when available.
+    """
+    t = (text or "").lower()
+
+    if any(w in t for w in ["rsui", "unrest", "protest", "riot", "strike", "demonstration"]):
         return "RSUI"
-    if "predict" in t or "forecast" in t:
-        return "Prediction"
+
+    for indep in sorted(INDEP_KEYWORDS, key=len, reverse=True):
+        if indep and (indep in t or indep.replace("_", " ") in t):
+            return indep.replace("_", " ").title()
+
+    for gt in sorted(GROUPTYPE_KEYWORDS, key=len, reverse=True):
+        if gt and (gt in t or gt.replace("_", " ") in t):
+            return gt.replace("_", " ").title()
+
+    for gl in sorted(GROUPLABEL_KEYWORDS, key=len, reverse=True):
+        if gl and (gl in t or gl.replace("_", " ") in t):
+            if gl.lower().startswith("total"):
+                continue
+            return gl.replace("_", " ").title()
+
+    if any(w in t for w in ["government expenditure", "public expenditure", "spending", "budget", "fiscal", "expanditure", "gov exp"]):
+        return "Gov Expenditure"
+    if any(w in t for w in ["wage", "salary", "earnings", "income", "pay"]):
+        return "Wages"
+    if any(w in t for w in ["unemployment", "jobless", "employment rate"]):
+        return "Unemployment"
+    if any(w in t for w in ["gdp", "gross domestic", "sector", "industry", "services"]):
+        return "GDP"
+    if any(w in t for w in ["pce", "consumption"]):
+        return "PCE"
+
     return ""
