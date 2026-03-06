@@ -12,6 +12,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.routers import auth, dashboard, chat, settings, unemployment, wages
+from dotenv import load_dotenv
+
+
+load_dotenv()  # loads .env into os.environ
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)

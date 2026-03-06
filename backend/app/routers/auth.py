@@ -1,6 +1,7 @@
 import random
 import string
 import uuid
+import hashlib
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -189,6 +190,7 @@ async def login(body: LoginRequest):
             detail="Invalid email or password",
         )
 
+    # Use 30-day expiry when remember_me is requested, else 60-minute default
     expire_minutes = (
         settings.REMEMBER_ME_EXPIRE_MINUTES
         if body.remember_me
