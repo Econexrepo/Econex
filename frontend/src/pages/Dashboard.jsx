@@ -115,23 +115,11 @@ function donutDataset(data) {
 }
 
 function heatmapDataset(data) {
-
   const matrix = []
 
   data.forEach((d, rowIndex) => {
-
-    matrix.push({
-      x: 0,
-      y: rowIndex,
-      v: Number(d.short_run)
-    })
-
-    matrix.push({
-      x: 1,
-      y: rowIndex,
-      v: Number(d.long_run)
-    })
-
+    matrix.push({ x: 0, y: rowIndex, v: Number(d.short_run) })
+    matrix.push({ x: 1, y: rowIndex, v: Number(d.long_run) })
   })
 
   return {
@@ -139,26 +127,38 @@ function heatmapDataset(data) {
       {
         label: "ARDL Impact",
         data: matrix,
+        borderWidth: 1,
+        borderColor: "#ffffff",
 
         backgroundColor(ctx) {
+          const raw = ctx.raw
+          if (!raw) return "#f3f4f6"
 
-          const v = ctx.raw.v
+          const v = Number(raw.v) || 0
 
-          if (!v) return "#f3f4f6"
+          
+          const alpha = Math.min(Math.abs(v) * 300, 1)
 
-          if (v > 0)
-            return `rgba(34,197,94,${Math.min(Math.abs(v)*200,1)})`
-
-          return `rgba(239,68,68,${Math.min(Math.abs(v)*200,1)})`
+          if (v > 0) return `rgba(34,197,94,${Math.max(alpha, 0.08)})`
+          if (v < 0) return `rgba(239,68,68,${Math.max(alpha, 0.08)})`
+          return "rgba(229,231,235,0.6)"
         },
 
-        width: ({ chart }) =>
-          (chart.chartArea || {}).width / 2 - 10,
+       
+        width: ({ chart }) => {
+          const area = chart.chartArea
+          if (!area) return 80
+          return Math.max(40, area.width / 2 - 14)
+        },
 
-        height: ({ chart }) =>
-          (chart.chartArea || {}).height / data.length - 6
-      }
-    ]
+        
+        height: ({ chart }) => {
+          const area = chart.chartArea
+          if (!area) return 18
+          return Math.max(12, area.height / data.length - 8)
+        },
+      },
+    ],
   }
 }
 
@@ -225,7 +225,7 @@ const lineOpts = {
       ticks: {
         padding: 8,
         callback: (value) =>
-          (value / 1000000).toFixed(1) + "M"
+          (value / 1000000).toFixed(1) 
       }
     }
   }
@@ -304,6 +304,50 @@ const volatilityOpts = {
   }
 }
 
+const ardlSignificanceOpts = {
+  indexAxis: "y",
+  responsive: true,
+  maintainAspectRatio: false,
+
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      callbacks: {
+        title: (items) => items[0]?.label || "",
+        label: (ctx) => {
+          const row = ctx.raw
+          // ctx.raw is just number in chart.js default, so use parsed + dataset index data lookup via chart labels if needed
+          return `Coefficient: ${ctx.parsed.x.toExponential(3)}`
+        },
+        afterLabel: (ctx) => {
+          // We’ll attach p-values separately via custom data lookup in the chart block
+          return ""
+        }
+      }
+    }
+  },
+
+  scales: {
+    x: {
+      grid: { color: "#e5e7eb" },
+      ticks: {
+        callback: (v) => Number(v).toExponential(1)
+      },
+      title: {
+        display: true,
+        text: "Short-run Coefficient (coef)"
+      }
+    },
+    y: {
+      grid: { display: false },
+      ticks: {
+        autoSkip: false,
+        font: { size: 12 }
+      }
+    }
+  }
+}
+
 // ─────────────────────────────────────────────────────────
 // Stat card
 // ─────────────────────────────────────────────────────────
@@ -339,6 +383,35 @@ function PceSummaryCard({ value }) {
       </div>
     </div>
   )
+}
+
+function ardlSignificanceDataset(data) {
+  return {
+    labels: data.map((d) => d.label),
+    datasets: [
+      {
+        label: "Short-run Coefficient",
+        data: data.map((d) => d.value),
+        backgroundColor: data.map((d) => {
+          // Significant -> strong green/red
+          // Not significant -> faded gray
+          if (!d.is_significant) return "rgba(156,163,175,0.45)" // gray
+
+          return d.value >= 0
+            ? "rgba(34,197,94,0.85)"   // green
+            : "rgba(239,68,68,0.85)"   // red
+        }),
+        borderColor: data.map((d) => {
+          if (!d.is_significant) return "rgba(107,114,128,0.6)"
+          return d.value >= 0
+            ? "rgba(22,163,74,1)"
+            : "rgba(220,38,38,1)"
+        }),
+        borderWidth: 1,
+        borderRadius: 6,
+      },
+    ],
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -382,7 +455,8 @@ export default function Dashboard() {
   "pce-growth-rate",
   "pce-share",
   "pce-volatility",
-  "ardl-impact"
+  "ardl-impact",
+  "ardl-short-significance"
 ]
 
 const chartResults = await Promise.all(
@@ -491,64 +565,109 @@ setCharts(chartData)
       <PceSummaryCard value={stats.personal_consumption_change || 0} />
 
           {charts["ardl-impact"] && (
-      <ChartCard title="ARDL Impact Heatmap" height={350}>
-              <Chart
-        type="matrix"
-        data={heatmapDataset(charts["ardl-impact"])}
-        options={{
-          maintainAspectRatio:false,
-
-          plugins:{
-            legend:{display:false}
-          },
-
-                  scales: {
-
+  <ChartCard
+    title="ARDL Impact Heatmap"
+    height={Math.max(420, charts["ardl-impact"].length * 28 + 120)}
+  >
+    <Chart
+      type="matrix"
+      data={heatmapDataset(charts["ardl-impact"])}
+      options={{
+        maintainAspectRatio: false,
+        layout: {
+          padding: { top: 8, right: 12, bottom: 8, left: 0 }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => {
+                const item = items[0]
+                const row = charts["ardl-impact"][item.raw.y]
+                const col = item.raw.x === 0 ? "Short Run" : "Long Run"
+                return `${row?.variable || ""} — ${col}`
+              },
+              label: (ctx) => `Coefficient: ${Number(ctx.raw.v).toExponential(3)}`
+            }
+          }
+        },
+        scales: {
           x: {
             type: "linear",
             min: -0.5,
             max: 1.5,
-
+            offset: false,
+            grid: { display: false },
             ticks: {
               stepSize: 1,
+              autoSkip: false,
               callback: (value) => {
                 if (value === 0) return "Short Run"
                 if (value === 1) return "Long Run"
                 return ""
               }
-            },
-
-            grid: { display: false }
+            }
           },
-
           y: {
             type: "linear",
             min: -0.5,
             max: charts["ardl-impact"].length - 0.5,
-
+            reverse: true, // top-to-bottom clean reading
+            offset: false,
+            grid: { display: false },
             ticks: {
-              callback: (value) =>
-                charts["ardl-impact"][value]?.variable || ""
-            },
-
-            grid: { display: false }
+              autoSkip: false,
+              callback: (value) => {
+                const row = charts["ardl-impact"][Math.round(value)]
+                return row ? row.variable : ""
+              }
+            }
           }
-
         }
-        }}
-      />
-      </ChartCard>
-    )}
+      }}
+    />
+  </ChartCard>
+)}
+
+{charts["ardl-short-significance"] && (
+  <ChartCard
+    title="ARDL Short-run Coefficients (Significance Highlighted)"
+    height={Math.max(420, charts["ardl-short-significance"].length * 28 + 120)}
+  >
+    <Bar
+      data={ardlSignificanceDataset(charts["ardl-short-significance"])}
+      options={{
+        ...ardlSignificanceOpts,
+        plugins: {
+          ...ardlSignificanceOpts.plugins,
+          tooltip: {
+            callbacks: {
+              title: (items) => items[0]?.label || "",
+              label: (ctx) => {
+                const row = charts["ardl-short-significance"][ctx.dataIndex]
+                return [
+                  `Coefficient: ${Number(row.value).toExponential(3)}`,
+                  `p-value: ${Number(row.p_value).toExponential(3)}`,
+                  row.is_significant ? "Significant (p < 0.05)" : "Not significant"
+                ]
+              }
+            }
+          }
+        }
+      }}
+    />
+  </ChartCard>
+)}
       </div>
 
       {/* RSUI Trend */}
-      <div className="rsui-card">
-        <h3 className="chart-title">Overall RSUI Trend</h3>
-
-        <div style={{ height: 220 }}>
-          <Line data={rsuiLine} options={lineOpts} />
-        </div>
-      </div>
+            <div className="rsui-card">
+              <h3 className="chart-title">Overall RSUI Trend</h3>
+      
+              <div style={{ height: 220 }}>
+                <Line data={rsuiLine} options={lineOpts} />
+              </div>
+            </div>
 
       {/* Insights */}
       <div className="insights-section">

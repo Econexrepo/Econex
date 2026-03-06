@@ -113,25 +113,319 @@ const lineOpts = {
   plugins: { legend: { display: false } },
 }
 
-// ─────────────────────────────────────────────────────────
-// Stat card
-// ─────────────────────────────────────────────────────────
-function StatCard({ icon, label, value }) {
-  const up = value >= 0
 
-  return (
-    <div className="stat-card">
-      <div className="stat-icon">{icon}</div>
+const unemploymentTrendOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
 
-      <div className="stat-info">
-        <span className={up ? 'stat-up' : 'stat-down'}>
-          {up ? '▲' : '▼'} {Math.abs(value)}%
-        </span>
+  plugins: {
+    legend: {
+      display: true,
+      position: "bottom",
+      labels: {
+        boxWidth: 12,
+        padding: 12,
+        font: { size: 11 }
+      }
+    },
+    tooltip: {
+      callbacks: {
+        label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toFixed(1)}%`
+      }
+    }
+  },
 
-        <span className="stat-label">{label}</span>
-      </div>
-    </div>
-  )
+  scales: {
+    x: {
+      grid: { display: false },
+      ticks: {
+        autoSkip: true,
+        maxTicksLimit: 10
+      },
+      title: {
+        display: true,
+        text: "Year"
+      }
+    },
+    y: {
+      beginAtZero: true,
+      grid: { color: "#e5e7eb" },
+      ticks: {
+        callback: (v) => `${v}%`
+      },
+      title: {
+        display: true,
+        text: "Unemployment Rate (%)"
+      }
+    }
+  }
+}
+
+const totalUnemploymentTrendOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
+
+  plugins: {
+    legend: {
+      display: true,
+      position: "bottom",
+    },
+    tooltip: {
+      callbacks: {
+        label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toFixed(1)}%`
+      }
+    }
+  },
+
+  scales: {
+    x: {
+      grid: { display: false },
+      title: {
+        display: true,
+        text: "Year"
+      },
+      ticks: {
+        autoSkip: true,
+        maxTicksLimit: 10
+      }
+    },
+    y: {
+      beginAtZero: false, // better for trend readability
+      grid: { color: "#e5e7eb" },
+      title: {
+        display: true,
+        text: "Unemployment Rate (%)"
+      },
+      ticks: {
+        callback: (v) => `${v}%`
+      }
+    }
+  }
+}
+
+
+const longRunEffectOpts = {
+  indexAxis: "y",
+  responsive: true,
+  maintainAspectRatio: false,
+
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      callbacks: {
+        label: (ctx) => {
+          const val = Number(ctx.raw)
+          return `Long-run effect: ${val.toExponential(3)}`
+        },
+      },
+    },
+  },
+
+  scales: {
+    x: {
+      grid: { color: "#e5e7eb" },
+      title: {
+        display: true,
+        text: "Long-run effect (coefficient)",
+      },
+      ticks: {
+        callback: (v) => Number(v).toExponential(1),
+      },
+    },
+    y: {
+      grid: { display: false },
+      ticks: { autoSkip: false },
+    },
+  },
+}
+
+const shortRunEffectOpts = {
+  indexAxis: "y",
+  responsive: true,
+  maintainAspectRatio: false,
+
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      callbacks: {
+        label: (ctx) => {
+          const val = Number(ctx.raw)
+          return `Short-run effect: ${val.toExponential(3)}`
+        },
+      },
+    },
+  },
+
+  scales: {
+    x: {
+      grid: { color: "#e5e7eb" },
+      title: {
+        display: true,
+        text: "Short-run effect (coefficient)",
+      },
+      ticks: {
+        callback: (v) => Number(v).toExponential(1),
+      },
+    },
+    y: {
+      grid: { display: false },
+      ticks: { autoSkip: false },
+    },
+  },
+}
+
+
+function totalUnemploymentLineDataset(data) {
+  return {
+    labels: data.map((d) => d.year),
+    datasets: [
+      {
+        label: "Total Unemployment",
+        data: data.map((d) => d.value),
+        borderColor: "#3b82f6",
+        backgroundColor: "rgba(59,130,246,0.12)",
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        borderWidth: 2,
+      },
+    ],
+  }
+}
+
+function longRunEffectBarDataset(data) {
+  // data: [{ label, value, n_obs, aic, bic }]
+  return {
+    labels: data.map((d) => d.label),
+    datasets: [
+      {
+        label: "Long-run effect",
+        data: data.map((d) => d.value),
+        backgroundColor: data.map((d) =>
+          d.value >= 0 ? "rgba(34,197,94,0.85)" : "rgba(239,68,68,0.85)"
+        ),
+        borderColor: data.map((d) =>
+          d.value >= 0 ? "rgba(22,163,74,1)" : "rgba(220,38,38,1)"
+        ),
+        borderWidth: 1,
+        borderRadius: 6,
+      },
+    ],
+  }
+}
+
+function shortRunEffectBarDataset(data) {
+  return {
+    labels: data.map((d) => d.label),
+    datasets: [
+      {
+        label: "Short-run ARDL Coefficients",
+        data: data.map((d) => d.value),
+        backgroundColor: data.map((d) =>
+          d.is_significant ? "rgba(34,197,94,0.85)" : "rgba(239,68,68,0.85)"
+        ),
+        borderColor: data.map((d) =>
+          d.is_significant ? "rgba(22,163,74,1)" : "rgba(220,38,38,1)"
+        ),
+        borderWidth: 1,
+        borderRadius: 6,
+      },
+    ],
+  }
+}
+
+function longRunEducationEffectBarDataset(data) {
+  return {
+    labels: data.map((d) => d.label),
+    datasets: [
+      {
+        label: "Long-run Effect",
+        data: data.map((d) => d.value),
+        backgroundColor: data.map((d) =>
+          d.value >= 0 ? "rgba(34,197,94,0.85)" : "rgba(239,68,68,0.85)"
+        ),
+        borderColor: data.map((d) =>
+          d.value >= 0 ? "rgba(22,163,74,1)" : "rgba(220,38,38,1)"
+        ),
+        borderWidth: 1,
+        borderRadius: 6,
+      },
+    ],
+  }
+}
+
+function shortRunEducationEffectBarDataset(data) {
+  return {
+    labels: data.map((d) => d.label),
+    datasets: [
+      {
+        label: "Short-run Effect",
+        data: data.map((d) => d.value),
+        backgroundColor: data.map((d) =>
+          d.is_significant ? "rgba(34,197,94,0.85)" : "rgba(239,68,68,0.85)"
+        ),
+        borderColor: data.map((d) =>
+          d.is_significant ? "rgba(22,163,74,1)" : "rgba(220,38,38,1)"
+        ),
+        borderWidth: 1,
+        borderRadius: 6,
+      },
+    ],
+  }
+}
+
+
+function unemploymentAgeTrendDataset(data) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return { labels: [], datasets: [] }
+  }
+
+  
+  // Unique sorted years
+  const years = [...new Set(data.map((d) => Number(d.year)))].sort((a, b) => a - b)
+
+  // Unique categories (age groups)
+  const categories = [...new Set(data.map((d) => d.category))]
+
+  // Color palette for multiple lines
+  const LINE_COLORS = [
+    "#3b82f6", // blue
+    "#10b981", // green
+    "#f59e0b", // amber
+    "#ef4444", // red
+    "#8b5cf6", // violet
+    "#06b6d4", // cyan
+    "#ec4899", // pink
+    "#84cc16", // lime
+  ]
+
+  const datasets = categories.map((category, idx) => {
+    const yearValueMap = new Map()
+
+    data
+      .filter((d) => d.category === category)
+      .forEach((d) => {
+        yearValueMap.set(Number(d.year), Number(d.value))
+      })
+
+    return {
+      label: category,
+      data: years.map((y) => yearValueMap.get(y) ?? null),
+      borderColor: LINE_COLORS[idx % LINE_COLORS.length],
+      backgroundColor: LINE_COLORS[idx % LINE_COLORS.length],
+      tension: 0.25,
+      fill: false,
+      pointRadius: 2,
+      pointHoverRadius: 4,
+      borderWidth: 2,
+    }
+  })
+
+  return {
+    labels: years,
+    datasets,
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -170,17 +464,18 @@ export default function Dashboard() {
         setInsights(insRes.data.insights)
 
         const chartNames = [
-  'pce',
-  //'gdp-sector',
-  //'unemployment_age',
-  //'wages_sector',
-  //'unemployment_education',
-  //'agriculture',
+        "unemployment-age-trend",
+        "unemployment-education-trend",
+        "total-unemployment-trend",
+        "unemployment-age-longrun",
+        "ardl-short-significance",
+        "long-run-education-effect",
+        "short-run-education-effect"
 ]
 
 const chartResults = await Promise.all(
   chartNames.map((c) =>
-    api.get(`/api/dashboard/charts/${c}`)
+   api.get(`/api/unemployment/charts/${c}`)
   )
 )
 
@@ -206,22 +501,7 @@ setCharts(chartData)
     return <div className="dashboard">Loading dashboard...</div>
   }
 
-  const statItems = [
-    { icon: '📊', label: 'GDP', value: stats.gdp_change || 0 },
-    { icon: '💰', label: 'Wages', value: stats.wages_change || 0 },
-    { icon: '🌾', label: 'Agriculture', value: stats.agriculture_change || 0 },
-    { icon: '👥', label: 'Unemployment', value: stats.unemployment_change || 0 },
-    {
-      icon: '🛒',
-      label: 'Consumption',
-      value: stats.personal_consumption_change || 0,
-    },
-    {
-      icon: '🏛️',
-      label: 'Govt. Expenditure',
-      value: stats.govt_expenditure_change || 0,
-    },
-  ]
+  
 
   const rsuiLine = {
     labels: rsui.map((r) => r.year),
@@ -239,52 +519,70 @@ setCharts(chartData)
   return (
     <div className="dashboard">
 
-      {/* Stats */}
-      <div className="stat-strip">
-        {statItems.map((s) => (
-          <StatCard key={s.label} {...s} />
-        ))}
-      </div>
 
       {/* Charts */}
       <div className="charts-grid">
 
-        {charts.pce && (
-          <ChartCard title="Personal Consumption Expenditure over Time">
-            <Bar data={barDataset(charts.pce)} options={barOpts} />
-          </ChartCard>
-        )}
-
-       {charts['gdp-sector'] && (
-          <ChartCard title="GDP sector impact on RSUI">
-            <Bar data={barDataset(charts['gdp-sector'])} options={barOpts} />
-          </ChartCard>
-        )}
-
-        {charts.unemployment_age && (
-          <ChartCard title="Unemployment age impact">
-            <Bar data={barDataset(charts.unemployment_age)} options={barOpts} />
-          </ChartCard>
-        )}
-
-        {charts.wages_sector && (
-          <ChartCard title="Wages sector impact">
-            <Bar data={barDataset(charts.wages_sector)} options={barOpts} />
-          </ChartCard>
-        )}
-
-        {charts.unemployment_education && (
-          <ChartCard title="Unemployment education impact">
-            <Bar
-              data={barDataset(charts.unemployment_education)}
-              options={barOpts}
+        {charts["unemployment-age-trend"] && (
+          <ChartCard title="Unemployment by Age Group Trend" height={420}>
+            <Line
+              data={unemploymentAgeTrendDataset(charts["unemployment-age-trend"])}
+              options={unemploymentTrendOpts}
             />
           </ChartCard>
         )}
 
-        {charts.agriculture && (
-          <ChartCard title="Agriculture impact">
-            <Bar data={barDataset(charts.agriculture)} options={barOpts} />
+        {charts["unemployment-education-trend"] && (
+          <ChartCard title="unemployment-education-trend" height={420}>
+            <Line
+              data={unemploymentAgeTrendDataset(charts["unemployment-education-trend"])}
+              options={unemploymentTrendOpts}
+            />
+          </ChartCard>
+        )}
+
+       {charts["total-unemployment-trend"] && (
+          <ChartCard title="Total Unemployment Trend" height={380}>
+            <Line
+              data={totalUnemploymentLineDataset(charts["total-unemployment-trend"])}
+              options={totalUnemploymentTrendOpts}
+            />
+          </ChartCard>
+        )}
+
+        {charts["unemployment-age-longrun"]?.length > 0 && (
+          <ChartCard title="Long-run ARDL Effect by Age Group" height={360} className="chart-card--full">
+            <Bar
+              data={longRunEffectBarDataset(charts["unemployment-age-longrun"])}
+              options={longRunEffectOpts}
+            />
+          </ChartCard>
+        )}
+
+        {charts["ardl-short-significance"]?.length > 0 && (
+          <ChartCard title="Short-run ARDL Effect by Age Group" height={360} className="chart-card--full">
+            <Bar
+              data={shortRunEffectBarDataset(charts["ardl-short-significance"])}
+              options={shortRunEffectOpts}
+            />
+          </ChartCard>
+        )}
+
+        {charts["unemployment-age-longrun"]?.length > 0 && (
+          <ChartCard title="Long-run ARDL Effect by Education Level" height={360} className="chart-card--full">
+            <Bar
+              data={longRunEducationEffectBarDataset(charts["unemployment-age-longrun"])}
+              options={longRunEffectOpts}
+            />
+          </ChartCard>
+        )}
+
+        {charts["short-run-education-effect"]?.length > 0 && (
+          <ChartCard title="Short-run ARDL Effect by Education Level" height={360} className="chart-card--full">
+            <Bar
+              data={shortRunEducationEffectBarDataset(charts["short-run-education-effect"])}
+              options={shortRunEffectOpts}
+            />
           </ChartCard>
         )}
       </div>

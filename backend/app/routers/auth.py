@@ -1,82 +1,101 @@
-"""
-Auth router – login, signup, forgot-password, reset-password, token validation.
-Uses Supabase PostgreSQL via SQLAlchemy (db.py is NOT modified).
-"""
-
-import uuid, random, string
+import random
+import string
+import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_engine
-from app.services.email import send_reset_code_email
 from app.models.schemas import (
+    ForgotPasswordRequest,
     LoginRequest,
     RegisterRequest,
-    ForgotPasswordRequest,
     ResetPasswordRequest,
     TokenResponse,
     UserOut,
 )
+from app.services.email import send_reset_code_email
 
 router = APIRouter()
 
-# ── Password hashing ──────────────────────────────────────────────────────────
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__truncate_error=True,
+)
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-# ── DB engine (reuses your existing db.py) ─────────────────────────────────────
 engine = get_engine()
 
 
-# ── Helper: generate username from name ────────────────────────────────────────
 def _make_username(name: str) -> str:
-    """e.g. 'John Doe' → 'john_doe' """
-    base = name.strip().lower().replace(" ", "_")
-    # Append random digits to avoid collisions
+    # Keeping your original behavior ("*" between spaces).
+    # If you want cleaner usernames, change "*" to "_".
+    base = name.strip().lower().replace(" ", "*")
     suffix = "".join(random.choices(string.digits, k=4))
     return f"{base}_{suffix}"
 
 
-# ── Helper: generate 6-digit reset code ────────────────────────────────────────
 def _generate_reset_code() -> str:
     return "".join(random.choices(string.digits, k=6))
 
 
-# ── Helper: password utilities ─────────────────────────────────────────────────
+def _validate_bcrypt_password(password: str) -> None:
+    password_bytes = password.encode("utf-8")
+    if len(password_bytes) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password is too long. Maximum allowed length is 72 bytes.",
+        )
+
+
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    _validate_bcrypt_password(plain)
+    try:
+        return pwd_context.verify(plain, hashed)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password is too long. Maximum allowed length is 72 bytes.",
+        )
 
 
 def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+    _validate_bcrypt_password(plain)
+    try:
+        return pwd_context.hash(plain)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password is too long. Maximum allowed length is 72 bytes.",
+        )
 
 
-# ── JWT ────────────────────────────────────────────────────────────────────────
 def create_access_token(data: dict, expire_minutes: int | None = None) -> str:
     to_encode = data.copy()
-    minutes = expire_minutes if expire_minutes is not None else settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    minutes = expire_minutes if expire_minutes else settings.ACCESS_TOKEN_EXPIRE_MINUTES
     expire = datetime.now(timezone.utc) + timedelta(minutes=minutes)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-# ── Dependency: current user from JWT ──────────────────────────────────────────
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserOut:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        email: str = payload.get("sub")
+        email: str | None = payload.get("sub")
         if email is None:
             raise credentials_exception
     except JWTError:
@@ -84,11 +103,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserOut:
 
     with engine.connect() as conn:
         row = conn.execute(
-            text("SELECT id, name, email, username, phone, avatar_url FROM users WHERE email = :email"),
+            text(
+                "SELECT id, name, email, username, phone, avatar_url "
+                "FROM users WHERE email = :email"
+            ),
             {"email": email},
         ).fetchone()
 
-    if row is None:
+    if not row:
         raise credentials_exception
 
     return UserOut(
@@ -101,27 +123,28 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserOut:
     )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  POST /register
-# ══════════════════════════════════════════════════════════════════════════════
 @router.post("/register")
 async def register(body: RegisterRequest):
-    with engine.connect() as conn:
-        # Check if email already exists
+    with engine.begin() as conn:
         existing = conn.execute(
             text("SELECT id FROM users WHERE email = :email"),
             {"email": body.email},
         ).fetchone()
+
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email is already registered.",
+                detail="Email already registered",
             )
 
         user_id = str(uuid.uuid4())
         username = _make_username(body.name)
         hashed = hash_password(body.password)
-        avatar_url = f"https://ui-avatars.com/api/?name={body.name.replace(' ', '+')}&background=7c3aed&color=fff&size=80"
+
+        avatar_url = (
+            "https://ui-avatars.com/api/"
+            f"?name={body.name.replace(' ', '+')}&background=7c3aed&color=fff&size=80"
+        )
 
         conn.execute(
             text(
@@ -139,34 +162,41 @@ async def register(body: RegisterRequest):
                 "avatar_url": avatar_url,
             },
         )
-        conn.commit()
 
-    return {"message": "Account created successfully."}
+    return {"message": "Account created successfully"}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  POST /login
-# ══════════════════════════════════════════════════════════════════════════════
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest):
     with engine.connect() as conn:
         row = conn.execute(
-            text("SELECT id, name, email, username, phone, avatar_url, hashed_password FROM users WHERE email = :email"),
+            text(
+                "SELECT id, name, email, username, phone, avatar_url, hashed_password "
+                "FROM users WHERE email = :email"
+            ),
             {"email": body.email},
         ).fetchone()
 
-    if not row or not verify_password(body.password, row[6]):
+    if not row:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
 
-    # Use 30-day expiry when remember_me is requested, else 60-minute default
+    if not verify_password(body.password, row[6]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+
     expire_minutes = (
-        settings.REMEMBER_ME_EXPIRE_MINUTES if body.remember_me
+        settings.REMEMBER_ME_EXPIRE_MINUTES
+        if body.remember_me
         else settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
-    token = create_access_token({"sub": row[2]}, expire_minutes=expire_minutes)
+
+    token = create_access_token({"sub": row[2]}, expire_minutes)
+
     return TokenResponse(
         access_token=token,
         user=UserOut(
@@ -180,20 +210,17 @@ async def login(body: LoginRequest):
     )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  POST /forgot-password
-# ══════════════════════════════════════════════════════════════════════════════
 @router.post("/forgot-password")
 async def forgot_password(body: ForgotPasswordRequest):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         row = conn.execute(
             text("SELECT id FROM users WHERE email = :email"),
             {"email": body.email},
         ).fetchone()
 
+        # Don't reveal whether the email exists
         if not row:
-            # Don't reveal if the email exists – always return success
-            return {"message": "If that email is registered, a reset code has been sent."}
+            return {"message": "If the email exists, a reset code has been sent"}
 
         code = _generate_reset_code()
         expires = datetime.now(timezone.utc) + timedelta(minutes=15)
@@ -208,83 +235,78 @@ async def forgot_password(body: ForgotPasswordRequest):
             ),
             {"code": code, "expires": expires, "email": body.email},
         )
-        conn.commit()
 
-    # ── Send the reset code via email ────────────────────────────────────────
     try:
-        send_reset_code_email(to_email=body.email, reset_code=code)
+        send_reset_code_email(body.email, code)
     except RuntimeError as exc:
-        # Log the error but don't expose internals to the client
-        print(f"[AUTH] Email send error for {body.email}: {exc}")
+        print("Email error:", exc)
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not send the reset email. Please check your SMTP settings.",
+            status_code=502,
+            detail="Email sending failed. Check SMTP settings",
         )
 
-    return {"message": "If that email is registered, a reset code has been sent."}
+    return {"message": "Reset code sent"}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  POST /reset-password
-# ══════════════════════════════════════════════════════════════════════════════
 @router.post("/reset-password")
 async def reset_password(body: ResetPasswordRequest):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         row = conn.execute(
-            text("SELECT id, reset_code, reset_code_expires FROM users WHERE email = :email"),
+            text(
+                "SELECT id, reset_code, reset_code_expires "
+                "FROM users WHERE email = :email"
+            ),
             {"email": body.email},
         ).fetchone()
 
         if not row:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid email or code.",
+                detail="Invalid email or code",
             )
 
         stored_code = row[1]
         expires = row[2]
 
-        if not stored_code or stored_code != body.code:
+        if stored_code != body.code:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired reset code.",
+                detail="Invalid reset code",
             )
 
-        if expires and expires < datetime.now(timezone.utc):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Reset code has expired. Please request a new one.",
-            )
+        if expires is not None:
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
 
-        # Update password and clear the reset code
+            if expires < datetime.now(timezone.utc):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Reset code expired",
+                )
+
         new_hash = hash_password(body.new_password)
+
         conn.execute(
             text(
                 """
                 UPDATE users
-                SET hashed_password = :pw, reset_code = NULL, reset_code_expires = NULL
+                SET hashed_password = :pw,
+                    reset_code = NULL,
+                    reset_code_expires = NULL
                 WHERE email = :email
                 """
             ),
             {"pw": new_hash, "email": body.email},
         )
-        conn.commit()
 
-    return {"message": "Password reset successfully."}
+    return {"message": "Password reset successful"}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  GET /me
-# ══════════════════════════════════════════════════════════════════════════════
 @router.get("/me", response_model=UserOut)
 async def get_me(current_user: UserOut = Depends(get_current_user)):
     return current_user
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  POST /logout
-# ══════════════════════════════════════════════════════════════════════════════
 @router.post("/logout")
 async def logout():
-    # Stateless JWT — client just discards the token
     return {"message": "Logged out successfully"}

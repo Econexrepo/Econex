@@ -250,6 +250,48 @@ async def get_ardl_impact(_: UserOut = Depends(get_current_user)):
         "data": merged.to_dict(orient="records")
     }
 
+    # ─────────────────────────────────────────────────────────
+# ARDL Short-run Coefficient + Significance
+# ─────────────────────────────────────────────────────────
+@router.get("/charts/ardl-short-significance")
+async def get_ardl_short_significance(_: UserOut = Depends(get_current_user)):
+
+    short_path = RESULTS_DIR / "short_run_pce.csv"
+
+    short_df = pd.read_csv(short_path)
+
+    
+    short_df = short_df.rename(columns={
+        "category_label": "label",
+        "coef": "value",
+        "pvalue": "p_value",
+    })
+
+    
+    cols_needed = ["label", "value", "p_value"]
+    missing = [c for c in cols_needed if c not in short_df.columns]
+    if missing:
+        return {"error": f"Missing columns in short_run_pce.csv: {missing}"}
+
+    short_df = short_df[cols_needed].copy()
+
+    
+    short_df["value"] = pd.to_numeric(short_df["value"], errors="coerce")
+    short_df["p_value"] = pd.to_numeric(short_df["p_value"], errors="coerce")
+
+    short_df = short_df.dropna(subset=["label", "value", "p_value"])
+
+
+    short_df["is_significant"] = short_df["p_value"] < 0.05
+
+    short_df["abs_value"] = short_df["value"].abs()
+    short_df = short_df.sort_values("abs_value", ascending=False)
+
+    return {
+        "data": short_df[["label", "value", "p_value", "is_significant"]]
+        .to_dict(orient="records")
+    }
+
 
 # ─────────────────────────────────────────────────────────
 # Insights
