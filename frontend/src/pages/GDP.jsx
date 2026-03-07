@@ -57,6 +57,98 @@ function barDataset(data) {
   }
 }
 
+
+function gdpTrendDataset(data = []) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return { labels: [], datasets: [] }
+  }
+
+  const years = [...new Set(data.map((d) => Number(d.year)))].sort((a, b) => a - b)
+  const categories = [...new Set(data.map((d) => d.category))]
+
+  const LINE_COLORS = [
+    '#3b82f6',
+    '#10b981',
+    '#f59e0b',
+    '#ef4444',
+    '#8b5cf6',
+    '#06b6d4',
+    '#ec4899',
+    '#84cc16',
+  ]
+
+  const datasets = categories.map((category, idx) => {
+    const yearValueMap = new Map()
+
+    data
+      .filter((d) => d.category === category)
+      .forEach((d) => {
+        yearValueMap.set(Number(d.year), Number(d.value))
+      })
+
+    return {
+      label: category,
+      data: years.map((y) => yearValueMap.get(y) ?? null),
+      borderColor: LINE_COLORS[idx % LINE_COLORS.length],
+      backgroundColor: LINE_COLORS[idx % LINE_COLORS.length],
+      tension: 0.25,
+      fill: false,
+      pointRadius: 2,
+      pointHoverRadius: 4,
+      borderWidth: 2,
+    }
+  })
+
+  return {
+    labels: years,
+    datasets,
+  }
+}
+
+function gdpStackedDataset(data = []) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return { labels: [], datasets: [] }
+  }
+
+  const years = [...new Set(data.map((d) => Number(d.year)))].sort((a, b) => a - b)
+  const categories = [...new Set(data.map((d) => d.category))]
+
+  const STACK_COLORS = [
+    '#3b82f6',
+    '#10b981',
+    '#f59e0b',
+    '#ef4444',
+    '#8b5cf6',
+    '#06b6d4',
+    '#ec4899',
+    '#84cc16',
+  ]
+
+  const datasets = categories.map((category, idx) => {
+    const yearValueMap = new Map()
+
+    data
+      .filter((d) => d.category === category)
+      .forEach((d) => {
+        yearValueMap.set(Number(d.year), Number(d.value))
+      })
+
+    return {
+      label: category,
+      data: years.map((y) => yearValueMap.get(y) ?? 0),
+      backgroundColor: STACK_COLORS[idx % STACK_COLORS.length],
+      borderRadius: 4,
+      borderWidth: 0,
+      stack: 'gdp',
+    }
+  })
+
+  return {
+    labels: years,
+    datasets,
+  }
+}
+
 const barOpts = {
   indexAxis: 'y',
   responsive: true,
@@ -111,6 +203,98 @@ const lineOpts = {
   responsive: true,
   maintainAspectRatio: false,
   plugins: { legend: { display: false } },
+}
+
+
+const gdpTrendOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      display: true,
+      position: 'bottom',
+      labels: {
+        boxWidth: 12,
+        padding: 12,
+        font: { size: 11 },
+      },
+    },
+    tooltip: {
+      callbacks: {
+        label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toFixed(2)}%`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      grid: { display: false },
+      title: {
+        display: true,
+        text: 'Year',
+      },
+      ticks: {
+        autoSkip: true,
+        maxTicksLimit: 10,
+      },
+    },
+    y: {
+      grid: { color: '#e5e7eb' },
+      title: {
+        display: true,
+        text: 'GDP Growth (%)',
+      },
+      ticks: {
+        callback: (v) => `${v}%`,
+      },
+    },
+  },
+}
+
+
+const gdpStackedOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      display: true,
+      position: 'bottom',
+      labels: {
+        boxWidth: 12,
+        padding: 12,
+        font: { size: 11 },
+      },
+    },
+    tooltip: {
+      callbacks: {
+        label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toFixed(2)}%`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      stacked: true,
+      grid: { display: false },
+      title: {
+        display: true,
+        text: 'Year',
+      },
+      ticks: {
+        autoSkip: true,
+        maxTicksLimit: 10,
+      },
+    },
+    y: {
+      stacked: true,
+      grid: { color: '#e5e7eb' },
+      title: {
+        display: true,
+        text: 'GDP Growth (%)',
+      },
+      ticks: {
+        callback: (v) => `${v}%`,
+      },
+    },
+  },
 }
 
 // ─────────────────────────────────────────────────────────
@@ -170,17 +354,14 @@ export default function Dashboard() {
         setInsights(insRes.data.insights)
 
         const chartNames = [
-  'pce',
-  //'gdp-sector',
-  //'unemployment_age',
-  //'wages_sector',
-  //'unemployment_education',
-  //'agriculture',
+  'gdp-sector-trend',
+  'gdp-shortrun-effect',
+  'gdp-longrun-effect'
 ]
 
 const chartResults = await Promise.all(
   chartNames.map((c) =>
-    api.get(`/api/dashboard/charts/${c}`)
+    api.get(`/api/gdp/charts/${c}`)
   )
 )
 
@@ -239,54 +420,41 @@ setCharts(chartData)
   return (
     <div className="dashboard">
 
-      {/* Stats */}
-      <div className="stat-strip">
-        {statItems.map((s) => (
-          <StatCard key={s.label} {...s} />
-        ))}
-      </div>
-
       {/* Charts */}
       <div className="charts-grid">
 
-        {charts.pce && (
-          <ChartCard title="Personal Consumption Expenditure over Time">
-            <Bar data={barDataset(charts.pce)} options={barOpts} />
-          </ChartCard>
-        )}
+        {Array.isArray(charts['gdp-sector-trend']) &&
+            charts['gdp-sector-trend'].length > 0 && (
+              <ChartCard title="GDP Growth Trend by Sector" height={420}>
+                <Line
+                  data={gdpTrendDataset(charts['gdp-sector-trend'])}
+                  options={gdpTrendOpts}
+                />
+              </ChartCard>
+            )}
 
-       {charts['gdp-sector'] && (
-          <ChartCard title="GDP sector impact on RSUI">
-            <Bar data={barDataset(charts['gdp-sector'])} options={barOpts} />
-          </ChartCard>
-        )}
+       {Array.isArray(charts['gdp-sector-trend']) &&
+          charts['gdp-sector-trend'].length > 0 && (
+            <ChartCard title="GDP Growth by Sector (Stacked Column)" height={420}>
+              <Bar
+                data={gdpStackedDataset(charts['gdp-sector-trend'])}
+                options={gdpStackedOpts}
+              />
+            </ChartCard>
+          )}
 
-        {charts.unemployment_age && (
-          <ChartCard title="Unemployment age impact">
-            <Bar data={barDataset(charts.unemployment_age)} options={barOpts} />
-          </ChartCard>
-        )}
+          {charts['gdp-shortrun-effect'] && (
+            <ChartCard title="GDP Short-Run Effect on RSUI">
+              <Bar data={barDataset(charts['gdp-shortrun-effect'])} options={barOpts} />
+            </ChartCard>
+          )}
 
-        {charts.wages_sector && (
-          <ChartCard title="Wages sector impact">
-            <Bar data={barDataset(charts.wages_sector)} options={barOpts} />
-          </ChartCard>
-        )}
+  {charts['gdp-longrun-effect'] && (
+        <ChartCard title="GDP Long-Run Effect on RSUI">
+          <Bar data={barDataset(charts['gdp-longrun-effect'])} options={barOpts} />
+        </ChartCard>
+      )}
 
-        {charts.unemployment_education && (
-          <ChartCard title="Unemployment education impact">
-            <Bar
-              data={barDataset(charts.unemployment_education)}
-              options={barOpts}
-            />
-          </ChartCard>
-        )}
-
-        {charts.agriculture && (
-          <ChartCard title="Agriculture impact">
-            <Bar data={barDataset(charts.agriculture)} options={barOpts} />
-          </ChartCard>
-        )}
       </div>
 
       {/* RSUI Trend */}

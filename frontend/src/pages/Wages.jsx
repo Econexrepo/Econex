@@ -10,7 +10,7 @@ import {
   Legend,
   Filler,
 } from 'chart.js'
-import { Bar, Line } from 'react-chartjs-2'
+import { Line, Bar } from 'react-chartjs-2'
 import api from '../api/axios'
 import './Dashboard.css'
 
@@ -26,83 +26,207 @@ ChartJS.register(
 )
 
 // ─────────────────────────────────────────────────────────
-// Colors
-// ─────────────────────────────────────────────────────────
-const BAR_COLORS = [
-  '#7c6ff7',
-  '#e8614a',
-  '#10b981',
-  '#f59e0b',
-  '#3b82f6',
-  '#ec4899',
-]
-
-// ─────────────────────────────────────────────────────────
 // Chart helpers
 // ─────────────────────────────────────────────────────────
-function barDataset(data) {
+function wageTrendDataset(data = []) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return { labels: [], datasets: [] }
+  }
+
+  const years = [...new Set(data.map((d) => Number(d.year)))].sort((a, b) => a - b)
+  const categories = [...new Set(data.map((d) => d.category))]
+
+  const LINE_COLORS = [
+    '#3b82f6',
+    '#10b981',
+    '#f59e0b',
+    '#ef4444',
+    '#8b5cf6',
+    '#06b6d4',
+    '#ec4899',
+    '#84cc16',
+  ]
+
+  const datasets = categories.map((category, idx) => {
+    const yearValueMap = new Map()
+
+    data
+      .filter((d) => d.category === category)
+      .forEach((d) => {
+        yearValueMap.set(Number(d.year), Number(d.value))
+      })
+
+    return {
+      label: category,
+      data: years.map((y) => yearValueMap.get(y) ?? null),
+      borderColor: LINE_COLORS[idx % LINE_COLORS.length],
+      backgroundColor: LINE_COLORS[idx % LINE_COLORS.length],
+      tension: 0.25,
+      fill: false,
+      pointRadius: 2,
+      pointHoverRadius: 4,
+      borderWidth: 2,
+    }
+  })
+
+  return {
+    labels: years,
+    datasets,
+  }
+}
+
+function wageLongRunEffectDataset(data = []) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return { labels: [], datasets: [] }
+  }
+
   return {
     labels: data.map((d) => d.label),
     datasets: [
       {
+        label: 'Long-run Effect',
         data: data.map((d) => d.value),
-        backgroundColor: data.map(
-          (_, i) => BAR_COLORS[i % BAR_COLORS.length]
+        backgroundColor: data.map((d) =>
+          d.value >= 0 ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)'
         ),
+        borderColor: data.map((d) =>
+          d.value >= 0 ? 'rgba(22,163,74,1)' : 'rgba(220,38,38,1)'
+        ),
+        borderWidth: 1,
         borderRadius: 6,
-        categoryPercentage: 0.6, 
-        barPercentage: 0.7,      
       },
     ],
   }
 }
 
-const barOpts = {
+function wageShortRunEffectDataset(data = []) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return { labels: [], datasets: [] }
+  }
+
+  return {
+    labels: data.map((d) => d.label),
+    datasets: [
+      {
+        label: 'Short-run Effect',
+        data: data.map((d) => d.value),
+        backgroundColor: data.map((d) =>
+          d.is_significant ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)'
+        ),
+        borderColor: data.map((d) =>
+          d.is_significant ? 'rgba(22,163,74,1)' : 'rgba(220,38,38,1)'
+        ),
+        borderWidth: 1,
+        borderRadius: 6,
+      },
+    ],
+  }
+}
+
+const wageTrendOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      display: true,
+      position: 'bottom',
+      labels: {
+        boxWidth: 12,
+        padding: 12,
+        font: { size: 11 },
+      },
+    },
+    tooltip: {
+      callbacks: {
+        label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toFixed(1)}`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      grid: { display: false },
+      title: {
+        display: true,
+        text: 'Year',
+      },
+      ticks: {
+        autoSkip: true,
+        maxTicksLimit: 10,
+      },
+    },
+    y: {
+      beginAtZero: false,
+      grid: { color: '#e5e7eb' },
+      title: {
+        display: true,
+        text: 'Wage Index',
+      },
+    },
+  },
+}
+
+const wageLongRunOpts = {
   indexAxis: 'y',
   responsive: true,
   maintainAspectRatio: false,
-
-  layout: {
-    padding: {
-      top: 10,
-      right: 20,
-      bottom: 10,
-      left: 10,
-    },
-  },
-
   plugins: {
-    legend: {
-      display: false,
-    },
+    legend: { display: false },
     tooltip: {
-      enabled: true,
+      callbacks: {
+        label: (ctx) => {
+          const val = Number(ctx.raw)
+          return `Long-run effect: ${val.toExponential(3)}`
+        },
+      },
     },
   },
-
   scales: {
     x: {
-      grid: {
-        color: '#e5e7eb',
+      grid: { color: '#e5e7eb' },
+      title: {
+        display: true,
+        text: 'Long-run effect (coefficient)',
       },
       ticks: {
-        padding: 10,
-        font: {
-          size: 11,
+        callback: (v) => Number(v).toExponential(1),
+      },
+    },
+    y: {
+      grid: { display: false },
+      ticks: { autoSkip: false },
+    },
+  },
+}
+
+const wageShortRunOpts = {
+  indexAxis: 'y',
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      callbacks: {
+        label: (ctx) => {
+          const val = Number(ctx.raw)
+          return `Short-run effect: ${val.toExponential(3)}`
         },
       },
     },
-
-    y: {
-      grid: {
-        display: false,
+  },
+  scales: {
+    x: {
+      grid: { color: '#e5e7eb' },
+      title: {
+        display: true,
+        text: 'Short-run effect (coefficient)',
       },
       ticks: {
-        padding: 12,
-        font: {
-          size: 12,
-        },
+        callback: (v) => Number(v).toExponential(1),
       },
+    },
+    y: {
+      grid: { display: false },
+      ticks: { autoSkip: false },
     },
   },
 }
@@ -113,25 +237,48 @@ const lineOpts = {
   plugins: { legend: { display: false } },
 }
 
-// ─────────────────────────────────────────────────────────
-// Stat card
-// ─────────────────────────────────────────────────────────
-function StatCard({ icon, label, value }) {
-  const up = value >= 0
-
-  return (
-    <div className="stat-card">
-      <div className="stat-icon">{icon}</div>
-
-      <div className="stat-info">
-        <span className={up ? 'stat-up' : 'stat-down'}>
-          {up ? '▲' : '▼'} {Math.abs(value)}%
-        </span>
-
-        <span className="stat-label">{label}</span>
-      </div>
-    </div>
-  )
+const gdpTrendOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      display: true,
+      position: 'bottom',
+      labels: {
+        boxWidth: 12,
+        padding: 12,
+        font: { size: 11 },
+      },
+    },
+    tooltip: {
+      callbacks: {
+        label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toFixed(2)}%`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      grid: { display: false },
+      title: {
+        display: true,
+        text: 'Year',
+      },
+      ticks: {
+        autoSkip: true,
+        maxTicksLimit: 10,
+      },
+    },
+    y: {
+      grid: { color: '#e5e7eb' },
+      title: {
+        display: true,
+        text: 'GDP Growth (%)',
+      },
+      ticks: {
+        callback: (v) => `${v}%`,
+      },
+    },
+  },
 }
 
 // ─────────────────────────────────────────────────────────
@@ -146,11 +293,57 @@ function ChartCard({ title, children, height = 220 }) {
   )
 }
 
+function gdpSectorTrendDataset(data = []) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return { labels: [], datasets: [] }
+  }
+
+  const years = [...new Set(data.map((d) => Number(d.year)))].sort((a, b) => a - b)
+  const categories = [...new Set(data.map((d) => d.category))]
+
+  const LINE_COLORS = [
+    '#3b82f6',
+    '#10b981',
+    '#f59e0b',
+    '#ef4444',
+    '#8b5cf6',
+    '#06b6d4',
+    '#ec4899',
+    '#84cc16',
+  ]
+
+  const datasets = categories.map((category, idx) => {
+    const yearValueMap = new Map()
+
+    data
+      .filter((d) => d.category === category)
+      .forEach((d) => {
+        yearValueMap.set(Number(d.year), Number(d.value))
+      })
+
+    return {
+      label: category,
+      data: years.map((y) => yearValueMap.get(y) ?? null),
+      borderColor: LINE_COLORS[idx % LINE_COLORS.length],
+      backgroundColor: LINE_COLORS[idx % LINE_COLORS.length],
+      tension: 0.25,
+      fill: false,
+      pointRadius: 2,
+      pointHoverRadius: 4,
+      borderWidth: 2,
+    }
+  })
+
+  return {
+    labels: years,
+    datasets,
+  }
+}
+
 // ─────────────────────────────────────────────────────────
 // Main Dashboard
 // ─────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [stats, setStats] = useState({})
   const [charts, setCharts] = useState({})
   const [rsui, setRsui] = useState([])
   const [insights, setInsights] = useState([])
@@ -165,36 +358,33 @@ export default function Dashboard() {
           api.get('/api/dashboard/insights'),
         ])
 
-        setStats(statsRes.data)
-        setRsui(rsRes.data.data)
-        setInsights(insRes.data.insights)
+        setRsui(rsRes.data.data || [])
+        setInsights(insRes.data.insights || [])
 
         const chartNames = [
-  'pce',
-  //'gdp-sector',
-  //'unemployment_age',
-  //'wages_sector',
-  //'unemployment_education',
-  //'agriculture',
-]
+          'gdp-sector-trend'
+        ]
 
-const chartResults = await Promise.all(
-  chartNames.map((c) =>
-    api.get(`/api/dashboard/charts/${c}`)
-  )
-)
+        const chartResults = await Promise.allSettled(
+          chartNames.map((c) => api.get(`/api/gdp/charts/${c}`))
+        )
 
-const chartData = {}
+        const chartData = {}
 
-chartNames.forEach((name, i) => {
-  chartData[name] = chartResults[i].data.data
-})
+        chartNames.forEach((name, i) => {
+          const result = chartResults[i]
+          if (result.status === 'fulfilled') {
+            chartData[name] = result.value.data?.data || []
+          } else {
+            console.error(`Failed to load chart: ${name}`, result.reason)
+            chartData[name] = []
+          }
+        })
 
-setCharts(chartData)
-
-        setLoading(false)
+        setCharts(chartData)
       } catch (err) {
         console.error('Dashboard API error', err)
+      } finally {
         setLoading(false)
       }
     }
@@ -206,28 +396,11 @@ setCharts(chartData)
     return <div className="dashboard">Loading dashboard...</div>
   }
 
-  const statItems = [
-    { icon: '📊', label: 'GDP', value: stats.gdp_change || 0 },
-    { icon: '💰', label: 'Wages', value: stats.wages_change || 0 },
-    { icon: '🌾', label: 'Agriculture', value: stats.agriculture_change || 0 },
-    { icon: '👥', label: 'Unemployment', value: stats.unemployment_change || 0 },
-    {
-      icon: '🛒',
-      label: 'Consumption',
-      value: stats.personal_consumption_change || 0,
-    },
-    {
-      icon: '🏛️',
-      label: 'Govt. Expenditure',
-      value: stats.govt_expenditure_change || 0,
-    },
-  ]
-
   const rsuiLine = {
-    labels: rsui.map((r) => r.year),
+    labels: Array.isArray(rsui) ? rsui.map((r) => r.year) : [],
     datasets: [
       {
-        data: rsui.map((r) => r.value),
+        data: Array.isArray(rsui) ? rsui.map((r) => r.value) : [],
         borderColor: '#e8614a',
         backgroundColor: 'rgba(232,97,74,.12)',
         fill: true,
@@ -238,75 +411,63 @@ setCharts(chartData)
 
   return (
     <div className="dashboard">
-
-      {/* Stats */}
-      <div className="stat-strip">
-        {statItems.map((s) => (
-          <StatCard key={s.label} {...s} />
-        ))}
-      </div>
-
-      {/* Charts */}
       <div className="charts-grid">
-
-        {charts.pce && (
-          <ChartCard title="Personal Consumption Expenditure over Time">
-            <Bar data={barDataset(charts.pce)} options={barOpts} />
-          </ChartCard>
-        )}
-
-       {charts['gdp-sector'] && (
-          <ChartCard title="GDP sector impact on RSUI">
-            <Bar data={barDataset(charts['gdp-sector'])} options={barOpts} />
-          </ChartCard>
-        )}
-
-        {charts.unemployment_age && (
-          <ChartCard title="Unemployment age impact">
-            <Bar data={barDataset(charts.unemployment_age)} options={barOpts} />
-          </ChartCard>
-        )}
-
-        {charts.wages_sector && (
-          <ChartCard title="Wages sector impact">
-            <Bar data={barDataset(charts.wages_sector)} options={barOpts} />
-          </ChartCard>
-        )}
-
-        {charts.unemployment_education && (
-          <ChartCard title="Unemployment education impact">
-            <Bar
-              data={barDataset(charts.unemployment_education)}
-              options={barOpts}
+        {Array.isArray(gdpSectorTrend) && gdpSectorTrend.length > 0 && (
+          <ChartCard title="GDP Growth Trend by Sector" height={420}>
+            <Line
+              data={gdpSectorTrendDataset(gdpSectorTrend)}
+              options={gdpTrendOpts}
             />
           </ChartCard>
         )}
 
-        {charts.agriculture && (
-          <ChartCard title="Agriculture impact">
-            <Bar data={barDataset(charts.agriculture)} options={barOpts} />
-          </ChartCard>
-        )}
+        {Array.isArray(charts['wage-real-trend']) &&
+          charts['wage-real-trend'].length > 0 && (
+            <ChartCard title="Real Wage Trend by Category" height={420}>
+              <Line
+                data={wageTrendDataset(charts['wage-real-trend'])}
+                options={wageTrendOpts}
+              />
+            </ChartCard>
+          )}
+
+        {Array.isArray(charts['wage-longrun-effect']) &&
+          charts['wage-longrun-effect'].length > 0 && (
+            <ChartCard title="Long-run ARDL Effect by Wage Category" height={360}>
+              <Bar
+                data={wageLongRunEffectDataset(charts['wage-longrun-effect'])}
+                options={wageLongRunOpts}
+              />
+            </ChartCard>
+          )}
+
+        {Array.isArray(charts['wage-shortrun-effect']) &&
+          charts['wage-shortrun-effect'].length > 0 && (
+            <ChartCard title="Short-run ARDL Effect by Wage Category" height={360}>
+              <Bar
+                data={wageShortRunEffectDataset(charts['wage-shortrun-effect'])}
+                options={wageShortRunOpts}
+              />
+            </ChartCard>
+          )}
       </div>
 
-      {/* RSUI Trend */}
       <div className="rsui-card">
         <h3 className="chart-title">Overall RSUI Trend</h3>
-
         <div style={{ height: 220 }}>
           <Line data={rsuiLine} options={lineOpts} />
         </div>
       </div>
 
-      {/* Insights */}
       <div className="insights-section">
-        {insights.map((ins) => (
-          <div key={ins.id} className={`insight-card insight-${ins.type}`}>
-            <span>{ins.icon}</span>
-            <strong>{ins.title}</strong>
-            <p>{ins.description}</p>
-          </div>
-        ))}
+        {Array.isArray(insights) &&
+          insights.map((ins) => (
+            <div key={ins.id} className={`insight-card insight-${ins.type}`}>
+              <span>{ins.icon}</span>
+              <strong>{ins.title}</strong>
+              <p>{ins.description}</p>
+            </div>
+          ))}
       </div>
     </div>
   )

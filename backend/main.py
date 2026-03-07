@@ -11,7 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app.routers import auth, dashboard, chat, settings, unemployment
+from app.routers import auth, dashboard, chat, settings, unemployment, wages, gdp, governmentexpenditure, agriculture
+from dotenv import load_dotenv
+
+
+load_dotenv()  # loads .env into os.environ
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
@@ -125,7 +129,11 @@ app.mount("/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(unemployment.router, prefix="/api/unemployment", tags=["Unemployment"])
+app.include_router(wages.router, prefix="/api/wages", tags=["wages"])
+app.include_router(gdp.router, prefix="/api/gdp", tags=["gdp"])
+app.include_router(agriculture.router, prefix="/api/agriculture", tags=["agriculture"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
+app.include_router(governmentexpenditure.router, prefix="/api/government-expenditure", tags=["Government Expenditure"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 
 

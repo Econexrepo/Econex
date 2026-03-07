@@ -1,7 +1,9 @@
 import random
 import string
 import uuid
+import hashlib
 from datetime import datetime, timedelta, timezone
+from typing import Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -23,7 +25,6 @@ from app.services.email import send_reset_code_email
 
 router = APIRouter()
 
-# Password hashing
 pwd_context = CryptContext(
     schemes=["bcrypt"],
     deprecated="auto",
@@ -36,8 +37,6 @@ engine = get_engine()
 
 
 def _make_username(name: str) -> str:
-    # Keeping your original behavior ("*" between spaces).
-    # If you want cleaner usernames, change "*" to "_".
     base = name.strip().lower().replace(" ", "*")
     suffix = "".join(random.choices(string.digits, k=4))
     return f"{base}_{suffix}"
@@ -76,6 +75,36 @@ def hash_password(plain: str) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password is too long. Maximum allowed length is 72 bytes.",
         )
+
+
+def _verify_legacy_sha256_password(plain: str, hashed: str) -> bool:
+    candidate = hashlib.sha256(plain.encode("utf-8")).hexdigest()
+    return candidate == (hashed or "").strip()
+
+
+def verify_and_maybe_migrate_password(plain: str, hashed: str) -> Tuple[bool, Optional[str]]:
+    """
+    Returns:
+        (is_valid, new_hash_if_migration_needed)
+
+    Behavior:
+    - If stored hash is bcrypt, verify with bcrypt.
+    - If stored hash looks like legacy SHA256 hex and matches, return a new bcrypt hash.
+    - Otherwise return (False, None).
+    """
+    if not hashed:
+        return False, None
+
+    hashed = hashed.strip()
+
+    if hashed.startswith("$2a$") or hashed.startswith("$2b$") or hashed.startswith("$2y$"):
+        return verify_password(plain, hashed), None
+
+    if len(hashed) == 64 and all(c in "0123456789abcdefABCDEF" for c in hashed):
+        if _verify_legacy_sha256_password(plain, hashed):
+            return True, hash_password(plain)
+
+    return False, None
 
 
 def create_access_token(data: dict, expire_minutes: int | None = None) -> str:
@@ -168,7 +197,7 @@ async def register(body: RegisterRequest):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest):
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         row = conn.execute(
             text(
                 "SELECT id, name, email, username, phone, avatar_url, hashed_password "
@@ -177,17 +206,31 @@ async def login(body: LoginRequest):
             {"email": body.email},
         ).fetchone()
 
-    if not row:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-        )
+        if not row:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password",
+            )
 
-    if not verify_password(body.password, row[6]):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-        )
+        is_valid, migrated_hash = verify_and_maybe_migrate_password(body.password, row[6])
+
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password",
+            )
+
+        if migrated_hash:
+            conn.execute(
+                text(
+                    """
+                    UPDATE users
+                    SET hashed_password = :pw
+                    WHERE email = :email
+                    """
+                ),
+                {"pw": migrated_hash, "email": body.email},
+            )
 
     expire_minutes = (
         settings.REMEMBER_ME_EXPIRE_MINUTES
@@ -198,16 +241,16 @@ async def login(body: LoginRequest):
     token = create_access_token({"sub": row[2]}, expire_minutes)
 
     return TokenResponse(
-        access_token=token,
-        user=UserOut(
-            id=str(row[0]),
-            name=row[1],
-            email=row[2],
-            username=row[3],
-            phone=row[4],
-            avatar_url=row[5],
-        ),
-    )
+    access_token=token,
+    user=UserOut(
+        id=str(row[0]),
+        name=row[1],
+        email=row[2],
+        username=row[3],
+        phone=row[4],
+        avatar_url=row[5],
+    ),
+)
 
 
 @router.post("/forgot-password")
@@ -218,7 +261,6 @@ async def forgot_password(body: ForgotPasswordRequest):
             {"email": body.email},
         ).fetchone()
 
-        # Don't reveal whether the email exists
         if not row:
             return {"message": "If the email exists, a reset code has been sent"}
 
