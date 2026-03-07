@@ -7,9 +7,10 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # JWT
-    SECRET_KEY:                  str = "econex-dev-secret-change-in-production"
-    ALGORITHM:                   str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    SECRET_KEY:                    str = "econex-dev-secret-change-in-production"
+    ALGORITHM:                     str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES:   int = 60          # default session (1 hour)
+    REMEMBER_ME_EXPIRE_MINUTES:    int = 43200        # remember-me (30 days)
 
     # CORS
     FRONTEND_ORIGIN: str = "http://localhost:5173"
