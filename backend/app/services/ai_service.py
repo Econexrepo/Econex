@@ -26,6 +26,12 @@ if _GROQ_API_KEY:
         base_url="https://api.groq.com/openai/v1",
     )
 
+_GROQ_CLIENT: Optional[OpenAI] = None
+if _GROQ_API_KEY:
+    _GROQ_CLIENT = OpenAI(
+        api_key=_GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1",
+    )
 
 def _groq_chat(messages: List[Dict[str, str]]) -> str:
     if _GROQ_CLIENT is None:
@@ -98,7 +104,18 @@ GLABEL_VOCAB: List[str] = sorted(set(_REL["_glabel_l"].dropna()), key=len, rever
 # Text helpers (your logic)
 # =============================================================================
 def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "").strip().lower())
+    s = str(s or "").lower().strip()
+    s = s.replace("_", " ")
+    s = re.sub(r"[^a-z0-9\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+DETAILS_ONLY_SET = {"show details", "details", "show stats", "stats", "numbers", "show numbers"}
+
+
+def _is_details_only(q: str) -> bool:
+    return _norm(q) in DETAILS_ONLY_SET
 
 
 DETAILS_ONLY_SET = {"show details", "details", "show stats", "stats", "numbers", "show numbers"}
@@ -247,6 +264,8 @@ def _extract_group_label_exact(q: str) -> Optional[str]:
             return lbl
     return None
 
+    "compare agri production":
+        "You can compare agricultural production categories by asking: 'compare agri production categories' or 'which agri production category affects RSUI the most?'.",
 
 # =============================================================================
 # Filtering / ranking (your logic)
