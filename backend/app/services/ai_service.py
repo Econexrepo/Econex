@@ -1,129 +1,185 @@
-"""
-Econex AI Service – relationship-table driven response engine (no OpenAI required).
+from __future__ import annotations
 
-Uses relationship_table.csv (with group_type) and answers questions by:
-- extracting indep_var / horizon / group_type / group_label hints
-- retrieving matching rows
-- producing a natural-language decision-friendly response
-- ranking "most affecting" categories when asked
-"""
-
+import os
 import pathlib
 import re
-from typing import Optional, List, Dict
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict, Any, Tuple
 
 import pandas as pd
 
+# Groq via OpenAI-compatible client (same approach as your friend's file)
+from openai import OpenAI
 
-# ── Relationship table loading ────────────────────────────────────────────────
-_BASE_DIR = pathlib.Path(__file__).resolve().parent.parent.parent.parent  # Econex repo root
 
-_CANDIDATES = [
-    _BASE_DIR / "relationship_table.csv",  # ✅ your current location (repo root)
-]
+# =============================================================================
+# Groq client setup
+# =============================================================================
+_GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+_GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+_GROQ_TEMPERATURE = float(os.getenv("GROQ_TEMPERATURE", "0.2"))
+
+_GROQ_CLIENT: Optional[OpenAI] = None
+if _GROQ_API_KEY:
+    _GROQ_CLIENT = OpenAI(
+        api_key=_GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1",
+    )
+
+_GROQ_CLIENT: Optional[OpenAI] = None
+if _GROQ_API_KEY:
+    _GROQ_CLIENT = OpenAI(
+        api_key=_GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1",
+    )
+
+def _groq_chat(messages: List[Dict[str, str]]) -> str:
+    if _GROQ_CLIENT is None:
+        return (
+            "Groq is not configured (missing GROQ_API_KEY). "
+            "Set GROQ_API_KEY in your environment (or .env) to enable LLM responses."
+        )
+
+    resp = _GROQ_CLIENT.chat.completions.create(
+        model=_GROQ_MODEL,
+        messages=messages,
+        temperature=_GROQ_TEMPERATURE,
+    )
+    return (resp.choices[0].message.content or "").strip()
+
+
+# =============================================================================
+# Load relationship_table.csv (your robust search)
+# =============================================================================
+def _find_relationship_table() -> pathlib.Path:
+    here = pathlib.Path(__file__).resolve()
+    for parent in [here.parent] + list(here.parents)[:8]:
+        p = parent / "relationship_table.csv"
+        if p.exists():
+            return p
+    p = pathlib.Path.cwd() / "relationship_table.csv"
+    if p.exists():
+        return p
+    raise FileNotFoundError("relationship_table.csv not found (searched parents and CWD).")
 
 
 def _load_relationship_table() -> pd.DataFrame:
-    for path in _CANDIDATES:
-        if path.exists():
-            df = pd.read_csv(path)
-            print(f"[ai_service] Loaded relationship_table.csv from: {path} — {len(df)} rows")
+    path = _find_relationship_table()
+    df = pd.read_csv(path)
 
-            required = {"dep_var", "indep_var", "group_type", "group_label", "horizon", "description"}
-            missing = required - set(df.columns)
-            if missing:
-                raise ValueError(f"relationship_table.csv missing columns: {sorted(missing)}")
+    required = {
+        "dep_var", "indep_var", "group_type", "group_label",
+        "horizon", "effect_value", "pvalue", "aic", "bic", "n_obs", "description"
+    }
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"relationship_table.csv missing columns: {sorted(missing)}")
 
-            # Normalize to strings for safe matching
-            for c in ["dep_var", "indep_var", "group_type", "group_label", "horizon", "description", "source_file", "status"]:
-                if c in df.columns:
-                    df[c] = df[c].astype(str)
+    for c in ["dep_var", "indep_var", "group_type", "group_label", "horizon", "description", "source_file", "status"]:
+        if c in df.columns:
+            df[c] = df[c].astype(str).fillna("")
 
-            # Numeric columns (safe coercion)
-            for c in ["effect_value", "pvalue", "aic", "bic", "n_obs"]:
-                if c in df.columns:
-                    df[c] = pd.to_numeric(df[c], errors="coerce")
+    for c in ["effect_value", "pvalue", "aic", "bic", "n_obs"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
 
-            # Lowercase helper columns
-            df["_dep_l"] = df["dep_var"].str.lower()
-            df["_indep_l"] = df["indep_var"].str.lower()
-            df["_gtype_l"] = df["group_type"].str.lower()
-            df["_glabel_l"] = df["group_label"].str.lower()
-            df["_horizon_l"] = df["horizon"].str.lower()
+    df["_dep_l"] = df["dep_var"].str.strip().str.lower()
+    df["_indep_l"] = df["indep_var"].str.strip().str.lower()
+    df["_gtype_l"] = df["group_type"].str.strip().str.lower()
+    df["_glabel_l"] = df["group_label"].str.strip().str.lower()
+    df["_horizon_l"] = df["horizon"].str.strip().str.lower()
 
-            return df
-
-    raise FileNotFoundError(
-        "[ai_service] Could not find relationship_table.csv. "
-        "Put it in the project root as relationship_table.csv."
-    )
+    print(f"[ai_service] Loaded relationship_table.csv from {path} ({len(df)} rows)")
+    return df
 
 
 _REL = _load_relationship_table()
 
+INDEP_VOCAB: List[str] = sorted(set(_REL["_indep_l"].dropna()))
+GTYPE_VOCAB: List[str] = sorted(set(_REL["_gtype_l"].dropna()))
+GLABEL_VOCAB: List[str] = sorted(set(_REL["_glabel_l"].dropna()), key=len, reverse=True)
 
-# ── NLP helpers ───────────────────────────────────────────────────────────────
+
+# =============================================================================
+# Text helpers (your logic)
+# =============================================================================
 def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "").strip().lower())
+    s = str(s or "").lower().strip()
+    s = s.replace("_", " ")
+    s = re.sub(r"[^a-z0-9\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+DETAILS_ONLY_SET = {"show details", "details", "show stats", "stats", "numbers", "show numbers"}
+
+
+def _is_details_only(q: str) -> bool:
+    return _norm(q) in DETAILS_ONLY_SET
+
+
+DETAILS_ONLY_SET = {"show details", "details", "show stats", "stats", "numbers", "show numbers"}
+
+
+def _is_details_only(q: str) -> bool:
+    return _norm(q) in DETAILS_ONLY_SET
 
 
 def _wants_details(q: str) -> bool:
     qn = _norm(q)
     return any(k in qn for k in [
         "show details", "details", "numbers", "stats", "statistics",
-        "p value", "p-value", "coef", "coefficient", "aic", "bic"
+        "p value", "p-value", "pvalue", "coef", "coefficient", "aic", "bic"
     ])
 
 
 def _extract_horizon(q: str) -> Optional[str]:
     qn = _norm(q)
-    if "long run" in qn or "long-run" in qn or "longrun" in qn:
+    if any(k in qn for k in ["long run", "long-run", "longrun", "lr"]):
         return "long_run"
-    if "short run" in qn or "short-run" in qn or "shortrun" in qn:
+    if any(k in qn for k in ["short run", "short-run", "shortrun", "sr"]):
         return "short_run"
     return None
 
 
 def _default_horizon_if_relationship(q: str) -> Optional[str]:
-    """
-    If user says 'relationship/association/effect/impact/link' and does NOT
-    specify short/long run, default to long_run.
-    """
     qn = _norm(q)
+    if _extract_horizon(qn):
+        return None
     if any(k in qn for k in ["relationship", "relation", "association", "link", "impact", "effect", "influence"]):
         return "long_run"
     return None
 
 
 def _extract_indep(q: str) -> Optional[str]:
-    """
-    Map user words -> indep_var values in relationship_table.csv
-    Includes the typo 'expanditure' support.
-    """
     qn = _norm(q)
 
+    # expenditure routing (your friend had this nice “capital/recurrent -> government_expenditure” behavior)
+    if any(k in qn for k in ["government expenditure", "public expenditure", "government spending", "public spending",
+                             "gov expenditure", "gov exp", "govt expenditure", "expanditure"]):
+        if any(k in qn for k in ["capital", "recurrent", "type"]):
+            return "government_expenditure"
+        return "total_expenditure"
+
+    if "expenditure" in qn or "spending" in qn:
+        if any(k in qn for k in ["capital", "recurrent", "type"]):
+            return "government_expenditure"
+        return "total_expenditure"
+
     synonyms = {
-        "unemployment": ["unemployment", "jobless", "joblessness"],
-        "government_expenditure": [
-            "government expenditure", "gov expenditure", "gov exp", "government exp",
-            "government spending", "public spending", "public expenditure",
-            "state spending", "state expenditure", "fiscal spending", "gov spending",
-            # ✅ typo support
-            "government expanditure", "public expanditure", "expanditure"
-        ],
-        "total_expenditure": ["total expenditure", "total government expenditure", "total gov expenditure", "overall expenditure"],
-        "wage": ["wage", "wages", "salary", "salaries"],
-        "gdp": ["gdp"],
-        "pce": ["pce", "consumption", "personal consumption", "consumption expenditure"],
+        "unemployment": ["unemployment", "jobless", "joblessness", "unemployed"],
+        "gdp": ["gdp", "gross domestic"],
+        "pce": ["pce", "consumption", "consumption expenditure", "personal consumption"],
+        "wage": ["wage", "wages", "salary", "salaries", "earnings", "income", "pay"],
+        "total_expenditure": ["total expenditure", "overall expenditure", "total spending"],
     }
 
     for indep, keys in synonyms.items():
         if any(k in qn for k in keys):
             return indep
 
-    # fallback: if user types exact indep_var
-    for v in sorted(set(_REL["_indep_l"].tolist())):
-        if v and v in qn:
+    for v in INDEP_VOCAB:
+        if v and (v in qn or v.replace("_", " ") in qn):
             return v
 
     return None
@@ -134,7 +190,7 @@ def _is_compare_intent(q: str) -> bool:
     return any(w in qn for w in [
         "compare", "comparison", "rank", "ranking",
         "top", "best", "worst", "highest", "lowest",
-        "strongest", "largest", "smallest"
+        "strongest", "largest", "smallest", "vs", "versus"
     ])
 
 
@@ -142,161 +198,86 @@ def _is_top_impact_intent(q: str) -> bool:
     qn = _norm(q)
     return any(w in qn for w in [
         "mostly affect", "affect the most", "affects the most",
-        "most affect", "most impact", "highest impact", "strongest impact",
+        "most impact", "highest impact", "strongest impact",
         "biggest impact", "which category", "which categories",
         "which age group", "which age groups",
         "which education", "which education levels",
-        "top categories", "top category", "top groups", "top group",
-        "rank categories", "rank groups",
+        "top categories", "top groups", "rank categories", "rank groups",
         "strongest effect", "largest effect"
     ])
 
 
-def _extract_group_type(q: str, indep: Optional[str]) -> Optional[str]:
-    """
-    Match to your ACTUAL group_type values in relationship_table.csv:
-    - age_group
-    - edu
-    - exp_type
-    - category
-    - category_name
-    - sector_name
-    """
+def _is_list_groups_intent(q: str) -> bool:
     qn = _norm(q)
+    return any(w in qn for w in [
+        "list groups", "list group", "list group labels", "list labels",
+        "show groups", "show group labels", "show labels",
+        "all groups", "all categories", "all group labels",
+        "what groups", "what categories", "which groups are there",
+        "group labels", "available groups", "available categories",
+        "list categories"
+    ])
+
+
+def _extract_group_type(q: str, indep: Optional[str]) -> Optional[str]:
+    qn = _norm(q)
+
+    if indep == "wage" and any(k in qn for k in ["compare", "comparison", "rank", "top", "affect the most", "most impact"]):
+        return "category_name"
 
     if "age" in qn:
         return "age_group"
-
-    if "education" in qn or "edu" in qn:
+    if "education" in qn or re.search(r"(?<!\w)edu(?!\w)", qn):
         return "edu"
-
-    # capital/recurrent are exp_type in your table
-    if "capital" in qn or "recurrent" in qn or "exp type" in qn or "expenditure type" in qn:
+    if any(k in qn for k in ["capital", "recurrent", "expenditure type", "exp type", "type"]):
         return "exp_type"
-
     if "sector" in qn:
         return "sector_name"
-
-    # category intent depends on variable
-    if "category" in qn or "categories" in qn or "by category" in qn:
+    if any(k in qn for k in ["category", "categories", "by category"]):
         if indep == "wage":
-            return "category_name"   # wages by category
-        return "category"            # pce categories + unemployment(total) category
+            return "category_name"
+        return "category"
 
+    for gt in GTYPE_VOCAB:
+        if gt and (gt in qn or gt.replace("_", " ") in qn):
+            return gt
     return None
 
 
-def _humanize_indep(indep: str) -> str:
-    mapping = {
-        "unemployment": "unemployment",
-        "government_expenditure": "government expenditure",
-        "total_expenditure": "total government expenditure",
-        "wage": "wages",
-        "gdp": "GDP",
-        "pce": "PCE (consumption expenditure)",
-        "x": "the variable",
-    }
-    key = (indep or "").strip().lower()
-    return mapping.get(key, key.replace("_", " "))
+def _auto_group_type_for_indep(indep: str) -> Optional[str]:
+    if not indep:
+        return None
+    sub = _REL[_REL["_indep_l"] == indep.lower()]
+    if sub.empty:
+        return None
+    return str(sub["_gtype_l"].value_counts().idxmax())
 
 
-def _humanize_group_label(group_label: str) -> str:
-    g = (group_label or "").strip()
-    if not g:
-        return "the overall sample"
-    gl = g.replace("_", " ").strip()
+def _extract_group_label_exact(q: str) -> Optional[str]:
+    qn = _norm(q)
+    for lbl in GLABEL_VOCAB:
+        if not lbl:
+            continue
+        if re.search(r"(?<!\w)" + re.escape(lbl) + r"(?!\w)", qn):
+            return lbl
+        if lbl.replace("_", " ") in qn:
+            return lbl
+    return None
 
-    # nicer age formatting if needed
-    gl2 = gl.lower()
-    gl2 = re.sub(r"(age)\s*(\d{1,2})[\s\-_]*(\d{1,2})", r"age group \2–\3", gl2)
-    return gl2
+    "compare agri production":
+        "You can compare agricultural production categories by asking: 'compare agri production categories' or 'which agri production category affects RSUI the most?'.",
 
-
-def _format_details(row: dict) -> str:
-    parts = []
-    if pd.notna(row.get("effect_value", float("nan"))):
-        parts.append(f"effect={row['effect_value']:.6g}")
-    if pd.notna(row.get("pvalue", float("nan"))):
-        parts.append(f"p={row['pvalue']:.3g}")
-    if pd.notna(row.get("aic", float("nan"))):
-        parts.append(f"AIC={row['aic']}")
-    if pd.notna(row.get("bic", float("nan"))):
-        parts.append(f"BIC={row['bic']}")
-    if pd.notna(row.get("n_obs", float("nan"))):
-        parts.append(f"n={int(row['n_obs'])}")
-    if row.get("source_file"):
-        parts.append(f"source={row['source_file']}")
-    return " | ".join(parts)
-
-
-def naturalize_row(row: dict, show_stats: bool = False) -> str:
-    indep_key = str(row.get("indep_var", "x"))
-    indep = _humanize_indep(indep_key)
-
-    group = _humanize_group_label(str(row.get("group_label", "")))
-    horizon = str(row.get("horizon", "")).replace("_", " ").strip().lower() or "result"
-
-    coef = row.get("effect_value", float("nan"))
-    pval = row.get("pvalue", float("nan"))
-
-    # Direction + plain takeaway
-    if pd.notna(coef) and coef > 0:
-        direction = "RSUI tends to go **up**"
-        takeaway = f"When **{indep}** increases, RSUI increases (for **{group}**)."
-        decision = f"If the goal is to reduce RSUI, this model suggests **reducing {indep}** (for **{group}**)."
-    elif pd.notna(coef) and coef < 0:
-        direction = "RSUI tends to go **down**"
-        takeaway = f"When **{indep}** increases, RSUI decreases (for **{group}**)."
-        # Avoid giving weird recommendations like "increase unemployment"
-        if indep_key.lower() == "unemployment":
-            decision = "This direction can be counterintuitive for unemployment; treat it as model-based correlation and validate with more checks."
-        else:
-            decision = f"If the goal is to reduce RSUI, this model suggests **increasing {indep}** would be associated with lower RSUI (interpret carefully)."
-    else:
-        direction = "there is **no clear direction**"
-        takeaway = f"No clear direction between **{indep}** and RSUI (for **{group}**)."
-        decision = "Treat this as weak/unclear evidence."
-
-    # Confidence
-    if pd.notna(pval):
-        if pval < 0.01:
-            conf = "High confidence (statistically strong)."
-        elif pval < 0.05:
-            conf = "Moderate confidence (statistically significant)."
-        else:
-            conf = "Low confidence (not statistically strong)."
-    else:
-        conf = "Confidence unknown (p-values not provided in this result file)."
-
-    if "low confidence" in conf.lower() or "unknown" in conf.lower():
-        decision2 = "Decision tip: use this as **directional** insight and confirm with diagnostics / additional models."
-    else:
-        decision2 = f"Decision tip: {decision}"
-
-    msg = (
-        f"**{horizon.title()} insight**\n"
-        f"- For **{group}**, {direction} when **{indep}** changes.\n"
-        f"- Confidence: **{conf}**\n"
-        f"- {decision2}\n"
-        f"- Plain takeaway: **{takeaway}**"
-    )
-
-    if show_stats:
-        details = _format_details(row)
-        if details:
-            msg += f"\n\n**Details:** {details}"
-    else:
-        msg += "\n\n(If you want the numbers, say **show details**.)"
-
-    return msg
-
-
-# ── Retrieval / ranking ───────────────────────────────────────────────────────
-def _filter(dep: str = "rsui",
-            indep: Optional[str] = None,
-            horizon: Optional[str] = None,
-            group_type: Optional[str] = None,
-            group_hint: Optional[str] = None) -> pd.DataFrame:
+# =============================================================================
+# Filtering / ranking (your logic)
+# =============================================================================
+def _filter(
+    dep: str = "rsui",
+    indep: Optional[str] = None,
+    horizon: Optional[str] = None,
+    group_type: Optional[str] = None,
+    group_label_exact: Optional[str] = None,
+    group_hint: Optional[str] = None,
+) -> pd.DataFrame:
     df = _REL[_REL["_dep_l"] == dep.lower()].copy()
 
     if indep:
@@ -305,131 +286,339 @@ def _filter(dep: str = "rsui",
         df = df[df["_horizon_l"] == horizon.lower()]
     if group_type:
         df = df[df["_gtype_l"] == group_type.lower()]
-    if group_hint:
+
+    if group_label_exact:
+        df = df[df["_glabel_l"] == _norm(group_label_exact)]
+    elif group_hint:
         gh = _norm(group_hint)
         df = df[df["_glabel_l"].apply(lambda x: gh in _norm(x))]
 
     return df
 
 
+def _rank_rows(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["p_rank"] = out["pvalue"].fillna(999999)
+    out["abs_effect"] = out["effect_value"].abs()
+    return out.sort_values(["p_rank", "abs_effect"], ascending=[True, False], na_position="last")
+
+
 def _rank_most_affecting(df: pd.DataFrame, k: int = 5) -> pd.DataFrame:
     out = df.copy()
     out["abs_effect"] = out["effect_value"].abs()
-
     out["sig_flag"] = out["pvalue"].apply(lambda p: 1 if pd.notna(p) and p < 0.05 else 0)
     out = out.sort_values(["sig_flag", "abs_effect"], ascending=[False, False], na_position="last")
     return out.head(k)
 
 
-def _help_text() -> str:
-    indeps = ", ".join(sorted(set(_REL["indep_var"].str.lower())))
-    gtypes = ", ".join(sorted(set(_REL["group_type"].str.lower())))
-    horizons = ", ".join(sorted(set(_REL["horizon"].str.lower())))
+def _best_row_per_group_label(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    ranked = _rank_rows(df)
+    return ranked.groupby("group_label", dropna=False, sort=False).head(1)
+
+
+def _is_overall_row(row: pd.Series) -> bool:
+    gt = str(row.get("group_type", "")).strip().lower()
+    gl = str(row.get("group_label", "")).strip().lower()
+    return gt == "tot_category" or gl.startswith("total")
+
+
+def _pick_overall_row(df: pd.DataFrame) -> Optional[dict]:
+    if df.empty:
+        return None
+    overall = df[df.apply(_is_overall_row, axis=1)]
+    if overall.empty:
+        return None
+    return _rank_rows(overall).iloc[0].to_dict()
+
+
+def _prefer_long_run_if_available(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    long_df = df[df["_horizon_l"] == "long_run"]
+    return long_df if not long_df.empty else df
+
+
+# =============================================================================
+# Session memory (your logic)
+# =============================================================================
+@dataclass
+class RetrievalState:
+    last_indep: Optional[str] = None
+    last_horizon: Optional[str] = None
+    last_group_type: Optional[str] = None
+    last_group_label_exact: Optional[str] = None
+    last_group_hint: Optional[str] = None
+    last_rows: List[Dict[str, Any]] = field(default_factory=list)
+    last_presented_rows: List[Dict[str, Any]] = field(default_factory=list)
+    last_nonvague_user_msg: str = ""
+
+
+_SESSION_MEM: dict[str, RetrievalState] = {}
+
+_VAGUE_PATTERNS = [
+    r"^\s*(give\s+details|details|show\s+details|show\s+stats|stats|numbers)\s*$",
+    r"^\s*(explain\s+more|more\s+info|tell\s+me\s+more|explain)\s*$",
+    r"^\s*(why\??)\s*$",
+    r"^\s*(how\??)\s*$",
+    r"^\s*(compare\s+them|compare\s+those|compare)\s*$",
+    r"^\s*(what\s+about\s+short\s*run\??|short\s*run\??)\s*$",
+    r"^\s*(what\s+about\s+long\s*run\??|long\s*run\??)\s*$",
+    r"^\s*(and\s+short\s*run\??|and\s+long\s*run\??)\s*$",
+    r"^\s*(continue|go\s+on|next)\s*$",
+]
+
+
+def _is_vague_followup(message: str) -> bool:
+    q = _norm(message)
+    if len(q) <= 2:
+        return True
+    return any(re.match(p, q) for p in _VAGUE_PATTERNS)
+
+
+def _extract_last_meaningful_user_text(history: Optional[List[Dict[str, str]]], lookback: int = 12) -> Optional[str]:
+    if not history:
+        return None
+    for item in reversed(history[-lookback:]):
+        if item.get("role") != "user":
+            continue
+        text = item.get("content") or ""
+        if text and not _is_vague_followup(text):
+            return text
+    return None
+
+
+def _merge_context(message: str, history: Optional[List[Dict[str, str]]], state: RetrievalState) -> Tuple[str, bool]:
+    vague = _is_vague_followup(message)
+    if not vague:
+        return message, False
+    base = state.last_nonvague_user_msg or _extract_last_meaningful_user_text(history) or ""
+    if not base:
+        return message, True
+    return f"{base} {message}", True
+
+
+def retrieve_relevant_rows(
+    message: str,
+    history: Optional[List[Dict[str, str]]],
+    session_id: str,
+    *,
+    limit_rows: int = 8,
+    reuse_last_rows_for_details: bool = True,
+) -> Optional[List[Dict[str, Any]]]:
+    state = _SESSION_MEM.setdefault(session_id, RetrievalState())
+
+    effective_query, vague = _merge_context(message, history, state)
+
+    indep = _extract_indep(effective_query)
+    horizon = _extract_horizon(effective_query) or _default_horizon_if_relationship(effective_query)
+    group_type = _extract_group_type(effective_query, indep)
+
+    if indep and not group_type and (_is_compare_intent(effective_query) or _is_top_impact_intent(effective_query) or _is_list_groups_intent(effective_query)):
+        group_type = _auto_group_type_for_indep(indep)
+
+    group_label_exact = _extract_group_label_exact(effective_query)
+
+    wants_details = _wants_details(message)
+    horizon_override = _extract_horizon(message)
+    if vague and reuse_last_rows_for_details and state.last_rows and wants_details and not horizon_override:
+        return state.last_rows
+
+    group_hint = None
+    if not group_label_exact:
+        qn = _norm(effective_query)
+        cleaned = re.sub(
+            r"(rsui|relationship|relation|association|link|impact|effect|influence|between|with|versus|vs|compare|rank|top|best|worst|highest|lowest|strongest|details|stats|statistics|list|groups|group\s*labels|labels)",
+            " ",
+            qn,
+        )
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        if len(cleaned) >= 2:
+            group_hint = cleaned
+
+    if vague:
+        indep = indep or state.last_indep
+        horizon = horizon or state.last_horizon
+        group_type = group_type or state.last_group_type
+        group_label_exact = group_label_exact or state.last_group_label_exact
+        group_hint = group_hint or state.last_group_hint
+
+    if horizon_override:
+        horizon = horizon_override
+
+    df = _filter(
+        dep="rsui",
+        indep=indep,
+        horizon=horizon,
+        group_type=group_type,
+        group_label_exact=group_label_exact,
+        group_hint=group_hint,
+    )
+
+    if df.empty and group_label_exact:
+        df = _filter(dep="rsui", indep=indep, horizon=horizon, group_type=group_type, group_label_exact=None, group_hint=group_hint)
+    if df.empty and group_hint:
+        df = _filter(dep="rsui", indep=indep, horizon=horizon, group_type=group_type, group_label_exact=group_label_exact, group_hint=None)
+    if df.empty and group_type:
+        df = _filter(dep="rsui", indep=indep, horizon=horizon, group_type=None, group_label_exact=group_label_exact, group_hint=group_hint)
+    if df.empty and horizon:
+        df = _filter(dep="rsui", indep=indep, horizon=None, group_type=group_type, group_label_exact=group_label_exact, group_hint=group_hint)
+
+    if df.empty:
+        return None
+
+    rows = _rank_rows(df).head(limit_rows).to_dict(orient="records")
+
+    state.last_indep = indep
+    state.last_horizon = horizon
+    state.last_group_type = group_type
+    state.last_group_label_exact = group_label_exact
+    state.last_group_hint = group_hint
+    state.last_rows = rows
+    if not vague:
+        state.last_nonvague_user_msg = message
+
+    return rows
+
+
+# =============================================================================
+# Groq grounding prompt + formatting
+# =============================================================================
+def _rows_context_json(rows: List[Dict[str, Any]], max_rows: int = 10) -> str:
+    df = pd.DataFrame(rows).head(max_rows)
+    cols = [
+        "dep_var", "indep_var", "group_type", "group_label", "horizon",
+        "effect_value", "pvalue", "aic", "bic", "n_obs", "status", "source_file", "description",
+    ]
+    cols = [c for c in cols if c in df.columns]
+    return df[cols].to_json(orient="records", indent=2)
+
+
+def _make_system_prompt(show_stats: bool) -> str:
+    stats_rule = (
+        "- Include key numbers (effect_value, pvalue, and n_obs if present).\n"
+        if show_stats else
+        "- Do NOT dump lots of numbers; only mention direction + confidence. End with: “(Say **show details** for numbers.)”.\n"
+    )
     return (
-        "Try asking:\n"
-        "- relationship between government expenditure and rsui\n"
-        "- relationship between gov spending and rsui short run capital\n"
-        "- compare government expenditure long run\n"
-        "- which age groups mostly affect rsui for unemployment\n"
-        "- top education categories affecting rsui unemployment\n"
-        "- which pce categories affect rsui the most\n"
-        "- wages by category strongest impact\n\n"
-        f"Available variables: {indeps}\n"
-        f"Available group types: {gtypes}\n"
-        f"Available horizons: {horizons}"
+        "You are Econex, a decision-friendly data assistant.\n"
+        "You MUST answer ONLY using the provided relationship_table rows (JSON).\n"
+        "Rules:\n"
+        "- Do not invent coefficients, p-values, categories, or data.\n"
+        "- Direction comes from effect_value sign: >0 increases RSUI, <0 decreases RSUI.\n"
+        "- Confidence from pvalue: <0.01 high, <0.05 moderate, else low. If pvalue missing, say unknown.\n"
+        "- If the user asks for something not covered by the rows, say you couldn't find it in relationship_table.csv and suggest a better query.\n"
+        f"{stats_rule}"
+        "- Keep the answer concise and structured.\n"
     )
 
 
-# ── Main function used by router ──────────────────────────────────────────────
-def get_ai_response(message: str, history: Optional[List[Dict[str, str]]] = None) -> str:
+# =============================================================================
+# Main API: get_ai_response
+# =============================================================================
+def get_ai_response(
+    message: str,
+    history: Optional[List[Dict[str, str]]] = None,
+    session_id: Optional[str] = None,
+) -> str:
     q = message or ""
-    qn = _norm(q)
+    session_id = session_id or "default-session"
+    state = _SESSION_MEM.setdefault(session_id, RetrievalState())
 
-    indep = _extract_indep(q)
-    horizon = _extract_horizon(q) or _default_horizon_if_relationship(q)
+    # "show details" for what was last presented
+    if _is_details_only(q):
+        if state.last_presented_rows:
+            # return deterministic details without Groq (fast + precise)
+            lines = ["**Details for the last shown result(s):**"]
+            for r in state.last_presented_rows[:12]:
+                lines.append(pd.Series(r).to_string())
+                lines.append("")
+            return "\n".join(lines).strip()
+        return "Nothing to show details for yet. Ask a relationship question first."
+
+    big_intent = _is_compare_intent(q) or _is_top_impact_intent(q) or _is_list_groups_intent(q)
+    limit = 150 if big_intent else 12
+
+    rows = retrieve_relevant_rows(
+        message=q,
+        history=history,
+        session_id=session_id,
+        limit_rows=limit,
+        reuse_last_rows_for_details=True,
+    )
+    if not rows:
+        return "I couldn't find a matching result in relationship_table.csv."
+
+    df = pd.DataFrame(rows)
     show_stats = _wants_details(q)
 
-    group_type = _extract_group_type(q, indep)
+    # prefer long run for broad intents unless user forced horizon
+    if big_intent and _extract_horizon(q) is None:
+        df = _prefer_long_run_if_available(df)
 
-    # Group label hint: keep remaining tokens as a weak substring hint
-    cleaned = qn
-    for token in [
-        "rsui", "relationship", "relation", "association", "link", "impact", "effect", "influence",
-        "between", "and", "with", "vs", "versus",
-        "long run", "long-run", "short run", "short-run",
-        "compare", "comparison", "rank", "ranking",
-        "top", "best", "worst", "highest", "lowest", "strongest",
-        "show details", "details", "numbers", "stats", "statistics",
-        "mostly affect", "affect the most", "most impact", "highest impact", "strongest impact",
-        "which category", "which categories", "which age group", "which age groups", "which education"
-    ]:
-        cleaned = cleaned.replace(token, " ")
+    # Decide what to PRESENT (distinct group labels for compare/top/list)
+    presented_rows: List[Dict[str, Any]] = []
 
-    # remove indep synonyms (keep conservative; don't strip "capital"/"recurrent")
-    for token in [
-        "unemployment", "jobless",
-        "government expenditure", "gov expenditure", "gov exp", "government spending", "public spending", "public expenditure",
-        "government expanditure", "public expanditure", "expanditure",
-        "total expenditure", "wage", "salary", "gdp", "pce", "consumption"
-    ]:
-        cleaned = cleaned.replace(token, " ")
+    if _is_list_groups_intent(q):
+        non_total = df[~df.apply(_is_overall_row, axis=1)].copy()
+        if _extract_horizon(q) is None:
+            non_total = _prefer_long_run_if_available(non_total)
+        presented_df = _rank_rows(_best_row_per_group_label(non_total)).head(15)
+        presented_rows = presented_df.to_dict(orient="records")
 
-    group_hint = _norm(cleaned)
-    if len(group_hint) < 2:
-        group_hint = None
+    elif _is_top_impact_intent(q) or _is_compare_intent(q):
+        non_total = df[~df.apply(_is_overall_row, axis=1)].copy()
+        if non_total.empty:
+            non_total = df.copy()
+        distinct = _best_row_per_group_label(non_total)
+        ranked = _rank_most_affecting(distinct, k=min(20, len(distinct)))
+        presented_rows = ranked.to_dict(orient="records")
 
-    # Initial filter
-    df = _filter(dep="rsui", indep=indep, horizon=horizon, group_type=group_type, group_hint=group_hint)
+    else:
+        overall = _pick_overall_row(df)
+        if overall:
+            presented_rows = [overall]
+        else:
+            best = _rank_rows(df).iloc[0].to_dict()
+            presented_rows = [best]
 
-    # Relax group_hint first
-    if df.empty and group_hint:
-        df = _filter(dep="rsui", indep=indep, horizon=horizon, group_type=group_type, group_hint=None)
+    # store what we showed (enables "show details")
+    state.last_presented_rows = presented_rows
 
-    # Relax group_type if mismatch
-    if df.empty and group_type:
-        df = _filter(dep="rsui", indep=indep, horizon=horizon, group_type=None, group_hint=group_hint)
+    # If Groq isn't configured, fallback to deterministic dump (but still works)
+    if _GROQ_CLIENT is None:
+        return (
+            "Groq is not configured (missing GROQ_API_KEY). "
+            "Set GROQ_API_KEY to enable LLM responses.\n\n"
+            + _rows_context_json(presented_rows, max_rows=10)
+        )
 
-    # Relax horizon if still empty
-    if df.empty and horizon:
-        df = _filter(dep="rsui", indep=indep, horizon=None, group_type=group_type, group_hint=group_hint)
+    # Groq: generate natural language grounded in presented_rows
+    context_json = _rows_context_json(presented_rows, max_rows=10)
 
-    if df.empty:
-        return "I couldn't find a matching result in relationship_table.csv.\n\n" + _help_text()
+    messages: List[Dict[str, str]] = [{"role": "system", "content": _make_system_prompt(show_stats)}]
 
-    # ── "Most affect / top categories" intent ────────────────────────────────
-    if _is_top_impact_intent(q):
-        ranked = _rank_most_affecting(df, k=5)
+    # small history slice for continuity
+    if history:
+        for m in history[-8:]:
+            role = (m.get("role") or "").strip().lower()
+            content = m.get("content")
+            if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
+                messages.append({"role": role, "content": content.strip()})
 
-        title_bits = []
-        if indep:
-            title_bits.append(_humanize_indep(indep))
-        if group_type:
-            title_bits.append(group_type.replace("_", " "))
-        if horizon:
-            title_bits.append(horizon.replace("_", " "))
+    messages.append({
+        "role": "user",
+        "content": (
+            f"User question: {message}\n\n"
+            f"relationship_table rows (JSON):\n{context_json}\n"
+        )
+    })
 
-        title = " / ".join(title_bits) if title_bits else "results"
-
-        lines = [f"**Top groups/categories that affect RSUI most ({title}):**"]
-        for _, r in ranked.iterrows():
-            row = r.to_dict()
-            lines.append(f"\n**{row.get('group_label','')}**\n{naturalize_row(row, show_stats=show_stats)}")
-        return "\n".join(lines)
-
-    # ── Compare intent (rank by significance then effect size) ───────────────
-    if _is_compare_intent(q):
-        ranked = _rank_most_affecting(df, k=5)
-        lines = ["**Comparison (ranked by confidence then effect size):**"]
-        for _, r in ranked.iterrows():
-            row = r.to_dict()
-            lines.append(f"\n**{row.get('group_label','')}**\n{naturalize_row(row, show_stats=show_stats)}")
-        return "\n".join(lines)
-
-    # ── Single best row ──────────────────────────────────────────────────────
-    out = df.copy()
-    out["p_rank"] = out["pvalue"].fillna(999999)
-    out["abs_effect"] = out["effect_value"].abs()
-    out = out.sort_values(["p_rank", "abs_effect"], ascending=[True, False], na_position="last")
-
-    best = out.iloc[0].to_dict()
-    return naturalize_row(best, show_stats=show_stats)
+    try:
+        return _groq_chat(messages)
+    except Exception as e:
+        return (
+            f"Groq request failed: {type(e).__name__}: {e}\n\n"
+            "Fallback rows:\n" + context_json
+        )
