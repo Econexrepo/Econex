@@ -8,21 +8,21 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import auth, dashboard, chat, settings
+from app.routers import auth, dashboard, chat, settings, graphs
 
 # ── CSV paths ──────────────────────────────────────────────────────────────────
-_BASE_DIR = pathlib.Path(__file__).resolve().parent.parent   # Econex repo root
-_ARDL_DIR = _BASE_DIR / "ardloutputs"
+# _BASE_DIR = pathlib.Path(__file__).resolve().parent.parent   # Econex repo root
+# _ARDL_DIR = _BASE_DIR / "ardloutputs"
 
-try:
-    short_run_df = pd.read_csv(_ARDL_DIR / "gdp_shortRun.csv")
-    long_run_df  = pd.read_csv(_ARDL_DIR / "gdp_longRun.csv")
-    print(f"[main] ARDL CSVs loaded from: {_ARDL_DIR}")
-except FileNotFoundError as e:
-    raise RuntimeError(
-        f"CSV file not found: {e}. "
-        f"Expected files inside: {_ARDL_DIR}"
-    ) from e
+# try:
+#     short_run_df = pd.read_csv(_ARDL_DIR / "gdp_shortRun.csv")
+#     long_run_df  = pd.read_csv(_ARDL_DIR / "gdp_longRun.csv")
+#     print(f"[main] ARDL CSVs loaded from: {_ARDL_DIR}")
+# except FileNotFoundError as e:
+#     raise RuntimeError(
+#         f"CSV file not found: {e}. "
+#         f"Expected files inside: {_ARDL_DIR}"
+#     ) from e
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -51,6 +51,7 @@ app.include_router(auth.router,      prefix="/api/auth",      tags=["Auth"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(chat.router,      prefix="/api/chat",      tags=["Chat"])
 app.include_router(settings.router,  prefix="/api/settings",  tags=["Settings"])
+app.include_router(graphs.router,    prefix="/api/graphs",    tags=["Graphs"])
 
 
 # ── Health ─────────────────────────────────────────────────────────────────────
