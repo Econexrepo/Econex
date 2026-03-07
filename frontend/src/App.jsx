@@ -2,6 +2,11 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
 import Auth from './pages/Auth'
 import Dashboard from './pages/Dashboard'
+import Unemployement from './pages/Unemployement'
+import Wages from './pages/Wages'
+import Agriculture from './pages/Agriculture'
+import GDP from './pages/GDP'
+import Expenditure from './pages/Expenditure'
 import Chat from './pages/Chat'
 import Settings from './pages/Settings'
 import AppLayout from './components/AppLayout'
@@ -32,6 +37,11 @@ export default function App() {
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
+        <Route path="unemployment" element={<Unemployement />} />
+        <Route path="wages" element={<Wages />} />
+        <Route path="agriculture" element={<Agriculture />} />
+        <Route path="GDP" element={<GDP />} />
+        <Route path="Expenditure" element={<Expenditure />} />
         <Route path="chat"      element={<Chat />} />
         <Route path="settings"  element={<Settings />} />
       </Route>
