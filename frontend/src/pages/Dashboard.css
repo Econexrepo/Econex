@@ -249,3 +249,33 @@
   color: var(--text-sub);
   line-height: 1.55;
 }
+
+.agri-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+
+.agri-tab {
+  border: 1px solid #d1d5db;
+  background: #f8fafc;
+  color: #374151;
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.agri-tab:hover {
+  background: #eef2ff;
+  border-color: #a5b4fc;
+}
+
+.agri-tab.active {
+  background: #7c6ff7;
+  color: #ffffff;
+  border-color: #7c6ff7;
+}
