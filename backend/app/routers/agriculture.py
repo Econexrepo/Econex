@@ -30,15 +30,15 @@ async def get_fao_multiline_trend(
                     SELECT MAX(year) AS max_year
                     FROM gold.fact_fao_sl
                     WHERE value IS NOT NULL
-                      AND domain_id = 5
-                      AND element_id = 65
+                      AND domain_id = 6
+                      AND element_id = 70
                 ),
                 top_items AS (
                     SELECT item_id
                     FROM gold.fact_fao_sl
                     WHERE value IS NOT NULL
-                      AND domain_id = 5
-                      AND element_id = 65
+                      AND domain_id = 6
+                      AND element_id = 70
                       AND year = (SELECT max_year FROM latest_year)
                     ORDER BY value DESC
                     LIMIT :top_n
@@ -51,8 +51,8 @@ async def get_fao_multiline_trend(
                 JOIN gold.dim_fao_item i
                     ON f.item_id = i.item_id
                 WHERE f.value IS NOT NULL
-                  AND f.domain_id = 5
-                  AND f.element_id = 65
+                  AND f.domain_id = 6
+                  AND f.element_id = 70
                   AND f.item_id IN (SELECT item_id FROM top_items)
                 ORDER BY f.year, f.item_id
             """),
@@ -99,15 +99,15 @@ async def get_fao_heatmap(
                     SELECT MAX(year) AS max_year
                     FROM gold.fact_fao_sl
                     WHERE value IS NOT NULL
-                      AND domain_id = 5
-                      AND element_id = 65
+                      AND domain_id = 6
+                      AND element_id = 70
                 ),
                 top_items AS (
                     SELECT item_id
                     FROM gold.fact_fao_sl
                     WHERE value IS NOT NULL
-                      AND domain_id = 5
-                      AND element_id = 65
+                      AND domain_id = 6
+                      AND element_id = 70
                       AND year = (SELECT max_year FROM latest_year)
                     ORDER BY value DESC
                     LIMIT :top_n
@@ -120,8 +120,8 @@ async def get_fao_heatmap(
                 JOIN gold.dim_fao_item i
                     ON f.item_id = i.item_id
                 WHERE f.value IS NOT NULL
-                  AND f.domain_id = 5
-                  AND f.element_id = 65
+                  AND f.domain_id = 6
+                  AND f.element_id = 70
                   AND f.item_id IN (SELECT item_id FROM top_items)
                 ORDER BY i.item_name, f.year
             """),
@@ -168,8 +168,8 @@ async def get_fao_latest_top_items(
                     SELECT MAX(year) AS max_year
                     FROM gold.fact_fao_sl
                     WHERE value IS NOT NULL
-                      AND domain_id = 5
-                      AND element_id = 65
+                      AND domain_id = 6
+                      AND element_id = 70
                 )
                 SELECT
                     i.item_name AS label,
@@ -178,8 +178,8 @@ async def get_fao_latest_top_items(
                 JOIN gold.dim_fao_item i
                     ON f.item_id = i.item_id
                 WHERE f.value IS NOT NULL
-                  AND f.domain_id = 5
-                  AND f.element_id = 65
+                  AND f.domain_id = 6
+                  AND f.element_id = 70
                   AND f.year = (SELECT max_year FROM latest_year)
                 ORDER BY f.value DESC
                 LIMIT :top_n
@@ -246,44 +246,91 @@ async def get_agri_effect_only(
         ]
     }
 
-
 @router.get("/charts/ardl-short-significance")
-async def get_ardl_short_significance(_: UserOut = Depends(get_current_user)):
+async def get_ardl_short_significance(
+    top_n: int = Query(15, ge=5, le=50),
+    _: UserOut = Depends(get_current_user),
+):
+    path = RESULTS_DIR / "Agriproduction_relationship_table.csv"
+
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Missing file: {path.resolve()}"
+        )
+
+    df = pd.read_csv(path)
+    df.columns = [str(c).strip() for c in df.columns]
+
+    required = ["group_label", "horizon", "effect_value", "pvalue"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Missing columns in agriculture relationship table: {missing}"
+        )
+
+    df["group_label"] = df["group_label"].astype(str).str.strip()
+    df["horizon"] = df["horizon"].astype(str).str.strip().str.lower()
+    df["effect_value"] = pd.to_numeric(df["effect_value"], errors="coerce")
+    df["pvalue"] = pd.to_numeric(df["pvalue"], errors="coerce")
+
+    df = df[df["horizon"] == "short_run"].copy()
+    df = df.dropna(subset=["group_label", "effect_value", "pvalue"])
+
+    df["is_significant"] = df["pvalue"] < 0.05
+    df["abs_value"] = df["effect_value"].abs()
+    df = df.sort_values("abs_value", ascending=False).head(top_n)
+
+    return {
+        "data": [
+            {
+                "label": str(row["group_label"]),
+                "value": float(row["effect_value"]),
+                "p_value": float(row["pvalue"]),
+                "is_significant": bool(row["is_significant"]),
+            }
+            for _, row in df.iterrows()
+        ]
+    }
+
+# @router.get("/charts/ardl-short-significance")
+# async def get_ardl_short_significance(_: UserOut = Depends(get_current_user)):
 
     
-    short_path = RESULTS_DIR / "rsui_unemployment_by_age_short_run_results.csv"
+#     short_path = RESULTS_DIR / "rsui_unemployment_by_age_short_run_results.csv"
 
    
-    short_df = pd.read_csv(short_path)
+#     short_df = pd.read_csv(short_path)
 
     
-    short_df = short_df.rename(columns={
-        "age_group_label": "label",    
-        "age_unemp_coef": "value",      
-        "age_unemp_pvalue": "p_value",  
-    })
+#     short_df = short_df.rename(columns={
+#         "age_group_label": "label",    
+#         "age_unemp_coef": "value",      
+#         "age_unemp_pvalue": "p_value",  
+#     })
 
-    cols_needed = ["label", "value", "p_value"]
-    missing = [c for c in cols_needed if c not in short_df.columns]
-    if missing:
-        return {"error": f"Missing columns in short_run_pce.csv: {missing}"}
+#     cols_needed = ["label", "value", "p_value"]
+#     missing = [c for c in cols_needed if c not in short_df.columns]
+#     if missing:
+#         return {"error": f"Missing columns in short_run_pce.csv: {missing}"}
 
-    short_df = short_df[cols_needed].copy()
-    short_df["value"] = pd.to_numeric(short_df["value"], errors="coerce")
-    short_df["p_value"] = pd.to_numeric(short_df["p_value"], errors="coerce")
+#     short_df = short_df[cols_needed].copy()
+#     short_df["value"] = pd.to_numeric(short_df["value"], errors="coerce")
+#     short_df["p_value"] = pd.to_numeric(short_df["p_value"], errors="coerce")
 
-    short_df = short_df.dropna(subset=["label", "value", "p_value"])
-    short_df["is_significant"] = short_df["p_value"] < 0.05
+#     short_df = short_df.dropna(subset=["label", "value", "p_value"])
+#     short_df["is_significant"] = short_df["p_value"] < 0.05
 
-    short_df["abs_value"] = short_df["value"].abs()
-
-    
-    short_df = short_df.sort_values("abs_value", ascending=False)
+#     short_df["abs_value"] = short_df["value"].abs()
 
     
-    return {
-        "data": short_df[["label", "value", "p_value", "is_significant"]].to_dict(orient="records")
-    }
+#     short_df = short_df.sort_values("abs_value", ascending=False)
+
+    
+#     return {
+#         "data": short_df[["label", "value", "p_value", "is_significant"]].to_dict(orient="records")
+#     }
 
 
 # ─────────────────────────────────────────────────────────
