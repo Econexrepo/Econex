@@ -1,276 +1,683 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Chart as ChartJS,
-  CategoryScale, LinearScale,
-  BarElement, LineElement, PointElement,
-  Title, Tooltip, Legend, Filler,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  PointElement,
+  Tooltip,
+  Legend,
+  Filler,
 } from 'chart.js'
-import { Bar, Line } from 'react-chartjs-2'
+import { Bar, Line, Doughnut } from 'react-chartjs-2'
+import { Chart } from "react-chartjs-2"
+import { MatrixController, MatrixElement } from "chartjs-chart-matrix";
+import { ArcElement } from 'chart.js'
 import api from '../api/axios'
 import './Dashboard.css'
 
+
 ChartJS.register(
-  CategoryScale, LinearScale,
-  BarElement, LineElement, PointElement,
-  Title, Tooltip, Legend, Filler
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  PointElement,
+  ArcElement,
+  Tooltip,
+  Legend,
+  Filler,
+  MatrixController,
+  MatrixElement
 )
 
-// ── Colour helpers ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────
+// Colors
+// ─────────────────────────────────────────────────────────
 const BAR_COLORS = [
-  '#7c6ff7','#e8614a','#10b981','#f59e0b','#3b82f6','#ec4899',
+  '#7c6ff7',
+  '#e8614a',
+  '#10b981',
+  '#f59e0b',
+  '#3b82f6',
+  '#ec4899',
 ]
 
-function barDataset(data, label = 'Impact strength') {
+const PIE_COLORS = [
+  "#6366F1",
+  "#F97316",
+  "#10B981",
+  "#F59E0B",
+  "#3B82F6",
+  "#EC4899",
+  "#14B8A6",
+  "#E11D48",
+  "#8B5CF6",
+  "#22C55E",
+  "#06B6D4",
+  "#F43F5E",
+  "#84CC16",
+  "#FACC15",
+  "#A855F7",
+  "#0EA5E9"
+]
+
+// ─────────────────────────────────────────────────────────
+// Chart helpers
+// ─────────────────────────────────────────────────────────
+function barDataset(data) {
   return {
     labels: data.map((d) => d.label),
-    datasets: [{
-      label,
-      data: data.map((d) => d.value),
-      backgroundColor: data.map((_, i) => BAR_COLORS[i % BAR_COLORS.length]),
-      borderRadius: 4,
-      barThickness: 16,
-    }],
+    datasets: [
+      {
+        data: data.map((d) => d.value),
+        backgroundColor: data.map(
+          (_, i) => BAR_COLORS[i % BAR_COLORS.length]
+        ),
+        borderRadius: 6,
+        categoryPercentage: 0.6, 
+        barPercentage: 0.7,      
+      },
+    ],
   }
 }
 
-const barOpts = (max = 100) => ({
+function lineDataset(data) {
+  return {
+    labels: data.map((d) => d.year),
+    datasets: [
+      {
+        data: data.map((d) => d.value),
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.15)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 4,
+      },
+    ],
+  }
+}
+
+function donutDataset(data) {
+  return {
+    labels: data.map((d) => d.label),
+    datasets: [
+      {
+        data: data.map((d) => d.value),
+        backgroundColor: data.map(
+          (_, i) => PIE_COLORS[i % PIE_COLORS.length]
+        ),
+        borderWidth: 0,
+      },
+    ],
+  }
+}
+
+function heatmapDataset(data) {
+  const matrix = []
+
+  data.forEach((d, rowIndex) => {
+    matrix.push({ x: 0, y: rowIndex, v: Number(d.short_run) })
+    matrix.push({ x: 1, y: rowIndex, v: Number(d.long_run) })
+  })
+
+  return {
+    datasets: [
+      {
+        label: "ARDL Impact",
+        data: matrix,
+        borderWidth: 1,
+        borderColor: "#ffffff",
+
+        backgroundColor(ctx) {
+          const raw = ctx.raw
+          if (!raw) return "#f3f4f6"
+
+          const v = Number(raw.v) || 0
+
+          
+          const alpha = Math.min(Math.abs(v) * 300, 1)
+
+          if (v > 0) return `rgba(34,197,94,${Math.max(alpha, 0.08)})`
+          if (v < 0) return `rgba(239,68,68,${Math.max(alpha, 0.08)})`
+          return "rgba(229,231,235,0.6)"
+        },
+
+       
+        width: ({ chart }) => {
+          const area = chart.chartArea
+          if (!area) return 80
+          return Math.max(40, area.width / 2 - 14)
+        },
+
+        
+        height: ({ chart }) => {
+          const area = chart.chartArea
+          if (!area) return 18
+          return Math.max(12, area.height / data.length - 8)
+        },
+      },
+    ],
+  }
+}
+
+const barOpts = {
   indexAxis: 'y',
   responsive: true,
   maintainAspectRatio: false,
-  plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => ` ${ctx.parsed.x}` } } },
-  scales: {
-    x: { max, grid: { color: '#e5e7eb' }, ticks: { color: '#9ca3af', font: { size: 11 } } },
-    y: { grid: { display: false }, ticks: { color: '#374151', font: { size: 11 } } },
+
+  layout: {
+    padding: 15
   },
-})
+
+  plugins: {
+    legend: { display: false }
+  },
+
+  scales: {
+    x: {
+      grid: { color: '#e5e7eb' },
+      ticks: {
+        callback: (value) =>
+          (value / 1000000).toFixed(1) + "M"
+      }
+    },
+
+    y: {
+      grid: { display: false },
+      ticks: {
+        font: {
+          size: 12
+        }
+      }
+    }
+  }
+}
 
 const lineOpts = {
   responsive: true,
   maintainAspectRatio: false,
-  plugins: { legend: { display: false } },
-  scales: {
-    x: { grid: { color: '#e5e7eb' }, ticks: { color: '#9ca3af', font: { size: 11 } } },
-    y: { grid: { color: '#e5e7eb' }, ticks: { color: '#9ca3af', font: { size: 11 } } },
+
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      callbacks: {
+        label: (ctx) =>
+          new Intl.NumberFormat().format(ctx.raw)
+      }
+    }
   },
+
+  scales: {
+    x: {
+      grid: { display: false },
+      ticks: {
+        padding: 8,
+        maxRotation: 0,
+        autoSkip: true,
+        maxTicksLimit: 8
+      }
+    },
+
+    y: {
+      grid: { color: '#e5e7eb' },
+      ticks: {
+        padding: 8,
+        callback: (value) =>
+          (value / 1000000).toFixed(1) 
+      }
+    }
+  }
 }
 
-// ── Stat card ──────────────────────────────────────────────────────────────────
+const lineRateOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
+
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      callbacks: {
+        label: (ctx) =>
+          ctx.raw.toFixed(2) + "%"
+      }
+    }
+  },
+
+  scales: {
+    x: {
+      grid: { display: false },
+      ticks: {
+        autoSkip: true,
+        maxTicksLimit: 8
+      }
+    },
+
+    y: {
+      grid: { color: '#e5e7eb' },
+      ticks: {
+        callback: (v) => v + "%"
+      }
+    }
+  }
+}
+
+const volatilityOpts = {
+  indexAxis: 'y',
+  responsive: true,
+  maintainAspectRatio: false,
+
+  layout: {
+    padding: 15
+  },
+
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      callbacks: {
+        label: (ctx) => ctx.raw.toFixed(2) + "%"
+      }
+    }
+  },
+
+  scales: {
+    x: {
+      grid: { color: "#e5e7eb" },
+      title: {
+        display: true,
+        text: "Growth Rate Volatility (Std Dev %)"
+      },
+      ticks: {
+        callback: (value) => value.toFixed(1) + "%"
+      }
+    },
+
+    y: {
+      grid: { display: false },
+      ticks: {
+        font: {
+          size: 12
+        }
+      }
+    }
+  }
+}
+
+const ardlSignificanceOpts = {
+  indexAxis: "y",
+  responsive: true,
+  maintainAspectRatio: false,
+
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      callbacks: {
+        title: (items) => items[0]?.label || "",
+        label: (ctx) => {
+          const row = ctx.raw
+          // ctx.raw is just number in chart.js default, so use parsed + dataset index data lookup via chart labels if needed
+          return `Coefficient: ${ctx.parsed.x.toExponential(3)}`
+        },
+        afterLabel: (ctx) => {
+          // We’ll attach p-values separately via custom data lookup in the chart block
+          return ""
+        }
+      }
+    }
+  },
+
+  scales: {
+    x: {
+      grid: { color: "#e5e7eb" },
+      ticks: {
+        callback: (v) => Number(v).toExponential(1)
+      },
+      title: {
+        display: true,
+        text: "Short-run Coefficient (coef)"
+      }
+    },
+    y: {
+      grid: { display: false },
+      ticks: {
+        autoSkip: false,
+        font: { size: 12 }
+      }
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Stat card
+// ─────────────────────────────────────────────────────────
 function StatCard({ icon, label, value }) {
   const up = value >= 0
+
   return (
     <div className="stat-card">
       <div className="stat-icon">{icon}</div>
+
       <div className="stat-info">
-        <span className={`stat-value ${up ? 'stat-up' : 'stat-down'}`}>
+        <span className={up ? 'stat-up' : 'stat-down'}>
           {up ? '▲' : '▼'} {Math.abs(value)}%
         </span>
+
         <span className="stat-label">{label}</span>
       </div>
     </div>
   )
 }
 
-// ── Chart card ─────────────────────────────────────────────────────────────────
+function PceSummaryCard({ value }) {
+  const up = value >= 0
+
+  return (
+    <div className="pce-summary-card">
+      <div className="pce-icon">🛒</div>
+
+      <h3 className="pce-title">PCE Change</h3>
+
+      <div className={`pce-value ${up ? "stat-up" : "stat-down"}`}>
+        {up ? "▲" : "▼"} {Math.abs(value).toFixed(2)}%
+      </div>
+    </div>
+  )
+}
+
+function ardlSignificanceDataset(data) {
+  return {
+    labels: data.map((d) => d.label),
+    datasets: [
+      {
+        label: "Short-run Coefficient",
+        data: data.map((d) => d.value),
+        backgroundColor: data.map((d) => {
+          // Significant -> strong green/red
+          // Not significant -> faded gray
+          if (!d.is_significant) return "rgba(156,163,175,0.45)" // gray
+
+          return d.value >= 0
+            ? "rgba(34,197,94,0.85)"   // green
+            : "rgba(239,68,68,0.85)"   // red
+        }),
+        borderColor: data.map((d) => {
+          if (!d.is_significant) return "rgba(107,114,128,0.6)"
+          return d.value >= 0
+            ? "rgba(22,163,74,1)"
+            : "rgba(220,38,38,1)"
+        }),
+        borderWidth: 1,
+        borderRadius: 6,
+      },
+    ],
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Chart card
+// ─────────────────────────────────────────────────────────
 function ChartCard({ title, children, height = 220 }) {
   return (
     <div className="chart-card">
       <h3 className="chart-title">{title}</h3>
-      <div style={{ height }}>
-        {children}
-      </div>
+      <div style={{ height }}>{children}</div>
     </div>
   )
 }
 
-// ── Insight card ───────────────────────────────────────────────────────────────
-function InsightCard({ icon, title, description, type }) {
-  return (
-    <div className={`insight-card insight-card--${type}`}>
-      <div className="insight-header">
-        <span className="insight-icon">{icon}</span>
-        <span className="insight-title">{title}</span>
-      </div>
-      <p className="insight-desc">{description}</p>
-    </div>
-  )
-}
-
-// ── Main Dashboard ─────────────────────────────────────────────────────────────
-// Dummy data (used while backend isn't connected)
-const DUMMY_STATS = {
-  gdp_change: -6.8, wages_change: 12.3, agriculture_change: 10.5,
-  unemployment_change: 15.1, personal_consumption_change: 15.1, govt_expenditure_change: 6.8,
-}
-
-const DUMMY_CHARTS = {
-  pce: [
-    { label: 'Food & beverages', value: 79.78 },
-    { label: 'Transport', value: 23.59 },
-    { label: 'Housing', value: 38.0 },
-    { label: 'Health', value: 20.61 },
-    { label: 'Education', value: 85.04 },
-    { label: 'Communication', value: 67.03 },
-  ],
-  gdp_sector: [
-    { label: 'Agriculture', value: 98.0 },
-    { label: 'Services', value: 66.0 },
-    { label: 'Industry', value: 88.0 },
-  ],
-  unemployment_age: [
-    { label: '15–19', value: 84.79 },
-    { label: '20–24', value: 75.28 },
-    { label: '25–29', value: 28.45 },
-    { label: '30–39', value: 57.03 },
-    { label: '40+', value: 21.70 },
-  ],
-  wages_sector: [
-    { label: 'Workers – Agriculture', value: 65.34 },
-    { label: 'Workers – Industry', value: 19.26 },
-    { label: 'Central Govt. Employees', value: 89.65 },
-    { label: 'Workers – Services', value: 40.09 },
-  ],
-  unemployment_education: [
-    { label: 'Grade 5 below', value: 65.34 },
-    { label: '6 to 10', value: 19.26 },
-    { label: 'GCE O/L', value: 89.85 },
-    { label: 'GCE A/L & above', value: 40.09 },
-  ],
-  agriculture: [
-    { label: '15–19', value: 84.78 },
-    { label: '20–24', value: 75.28 },
-    { label: '25–29', value: 28.45 },
-    { label: '30–39', value: 57.03 },
-    { label: '40+', value: 21.70 },
-  ],
-}
-
-const DUMMY_RSUI = [
-  { year: 2000, value: 14.2 }, { year: 2001, value: 15.8 }, { year: 2002, value: 18.1 },
-  { year: 2003, value: 17.3 }, { year: 2004, value: 19.6 }, { year: 2005, value: 21.2 },
-  { year: 2006, value: 22.8 }, { year: 2007, value: 28.4 }, { year: 2008, value: 24.5 },
-  { year: 2009, value: 22.1 }, { year: 2010, value: 25.8 }, { year: 2011, value: 28.2 },
-  { year: 2012, value: 29.6 }, { year: 2013, value: 31.4 }, { year: 2014, value: 33.8 },
-  { year: 2015, value: 32.1 }, { year: 2016, value: 35.7 },
-]
-
-const DUMMY_INSIGHTS = [
-  { id: 'ins-1', type: 'danger',  icon: '⚠️', title: 'High Risk Alert',
-    description: 'Employment sector showing critical impact (72.8) with rising unemployment rates. Immediate intervention recommended.' },
-  { id: 'ins-2', type: 'warning', icon: '📈', title: 'Wage Pressure Increasing',
-    description: 'Wages impact index at 68.4 with 12.3% increase. Monitor closely for potential social unrest triggers.' },
-  { id: 'ins-3', type: 'success', icon: '🌾', title: 'Agriculture Sector Stable',
-    description: 'Agricultural impact at moderate level (54.2). Seasonal variations expected in Q2–Q3 period.' },
-  { id: 'ins-4', type: 'info',    icon: '🛒', title: 'Consumption Patterns Shifting',
-    description: 'Personal consumption expenditure impact at 61.9. Consumer confidence declining, watch for cascading effects.' },
-]
-
+// ─────────────────────────────────────────────────────────
+// Main Dashboard
+// ─────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [stats,    setStats]    = useState(DUMMY_STATS)
-  const [charts,   setCharts]   = useState(DUMMY_CHARTS)
-  const [rsui,     setRsui]     = useState(DUMMY_RSUI)
-  const [insights, setInsights] = useState(DUMMY_INSIGHTS)
+  const [stats, setStats] = useState({})
+  const [charts, setCharts] = useState({})
+  const [rsui, setRsui] = useState([])
+  const [insights, setInsights] = useState([])
+  const [loading, setLoading] = useState(true)
 
-  // Attempt to load from API; silently fall back to dummy data
   useEffect(() => {
-    const load = async () => {
+    const loadDashboard = async () => {
       try {
         const [statsRes, rsRes, insRes] = await Promise.all([
           api.get('/api/dashboard/stats'),
           api.get('/api/dashboard/rsui-trend'),
           api.get('/api/dashboard/insights'),
         ])
+
         setStats(statsRes.data)
         setRsui(rsRes.data.data)
         setInsights(insRes.data.insights)
 
-        const chartNames = ['pce','gdp_sector','unemployment_age','wages_sector','unemployment_education','agriculture']
-        const chartResults = await Promise.all(
-          chartNames.map((n) => api.get(`/api/dashboard/charts/${n}`))
-        )
-        const newCharts = {}
-        chartNames.forEach((n, i) => { newCharts[n] = chartResults[i].data.data })
-        setCharts(newCharts)
-      } catch { /* use dummy data */ }
+        const chartNames = [
+  'pce',
+  "pce-growth-value",
+  "pce-growth-rate",
+  "pce-share",
+  "pce-volatility",
+  "ardl-impact",
+  "ardl-short-significance"
+]
+
+const chartResults = await Promise.all(
+  chartNames.map((c) =>
+    api.get(`/api/dashboard/charts/${c}`)
+  )
+)
+
+const chartData = {}
+
+chartNames.forEach((name, i) => {
+  chartData[name] = chartResults[i].data.data
+})
+
+setCharts(chartData)
+
+        setLoading(false)
+      } catch (err) {
+        console.error('Dashboard API error', err)
+        setLoading(false)
+      }
     }
-    load()
+
+    loadDashboard()
   }, [])
 
-  const statItems = [
-    { icon: '📊', label: 'GDP',                  value: stats.gdp_change },
-    { icon: '💰', label: 'Wages',                value: stats.wages_change },
-    { icon: '🌾', label: 'Agriculture',          value: stats.agriculture_change },
-    { icon: '👥', label: 'Unemployment',         value: stats.unemployment_change },
-    { icon: '🛒', label: 'Personal Consumption', value: stats.personal_consumption_change },
-    { icon: '🏛️', label: 'Govt. Expenditure',   value: stats.govt_expenditure_change },
-  ]
+  if (loading) {
+    return <div className="dashboard">Loading dashboard...</div>
+  }
 
-  const rsLine = {
+
+  const rsuiLine = {
     labels: rsui.map((r) => r.year),
-    datasets: [{
-      data: rsui.map((r) => r.value),
-      borderColor: '#e8614a',
-      backgroundColor: 'rgba(232,97,74,.12)',
-      fill: true,
-      tension: 0.4,
-      pointRadius: 3,
-    }],
+    datasets: [
+      {
+        data: rsui.map((r) => r.value),
+        borderColor: '#e8614a',
+        backgroundColor: 'rgba(232,97,74,.12)',
+        fill: true,
+        tension: 0.4,
+      },
+    ],
   }
 
   return (
     <div className="dashboard">
-      {/* Stat strip */}
-      <div className="stat-strip">
-        {statItems.map((s) => <StatCard key={s.label} {...s} />)}
-      </div>
 
-      {/* Charts grid */}
+      {/* Charts */}
       <div className="charts-grid">
-        <ChartCard title="PCE impact on RSUI" height={220}>
-          <Bar data={barDataset(charts.pce)} options={barOpts(100)} />
-        </ChartCard>
 
-        <ChartCard title="GDP sector impact on RSUI" height={160}>
-          <Bar data={barDataset(charts.gdp_sector)} options={barOpts(100)} />
-        </ChartCard>
+        {charts.pce && (
+          <ChartCard title="Personal Consumption Expenditure over Time">
+            <Bar data={barDataset(charts.pce)} options={barOpts} />
+          </ChartCard>
+        )}
 
-        <ChartCard title="Unemployment age level impact on RSUI" height={220}>
-          <Bar data={barDataset(charts.unemployment_age)} options={barOpts(100)} />
-        </ChartCard>
 
-        <ChartCard title="Wages sector impact on RSUI" height={220}>
-          <Bar data={barDataset(charts.wages_sector)} options={barOpts(100)} />
-        </ChartCard>
+        {charts['pce-growth-value'] && (
+          <ChartCard title="PCE Growth Value (Absolute Change)">
+            <Line
+                data={lineDataset(charts['pce-growth-value'])}
+                options={lineOpts}
+            />
+          </ChartCard>
+        )}
 
-        <ChartCard title="Unemployment educational level impact on RSUI" height={200}>
-          <Bar data={barDataset(charts.unemployment_education)} options={barOpts(100)} />
-        </ChartCard>
+        {charts['pce-growth-rate'] && (
+          <ChartCard title="PCE Growth Rate (%)">
+            <Line
+              data={lineDataset(charts['pce-growth-rate'], '#10b981')}
+              options={lineRateOpts}
+/>
+          </ChartCard>
+        )}
 
-        <ChartCard title="Agriculture impact on RSUI" height={220}>
-          <Bar data={barDataset(charts.agriculture)} options={barOpts(100)} />
-        </ChartCard>
+        {charts['pce-share'] && (
+          <ChartCard title="PCE Category Share" height={450}>
+            <Doughnut
+              data={donutDataset(charts['pce-share'])}
+              options={{
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: {
+                    position: "right",
+                    labels: {
+                      boxWidth: 18,
+                      padding: 15
+                    }
+                  }
+                }
+              }}
+            />
+  
+          </ChartCard>
+        )}
+
+        {charts["pce-volatility"] && (
+          <ChartCard title="Consumption Volatility by Sector">
+            <Bar
+            data={barDataset(charts["pce-volatility"])}
+            options={volatilityOpts}
+            />
+          </ChartCard>
+        )}
+
+      <PceSummaryCard value={stats.personal_consumption_change || 0} />
+
+          {charts["ardl-impact"] && (
+  <ChartCard
+    title="ARDL Impact Heatmap"
+    height={Math.max(420, charts["ardl-impact"].length * 28 + 120)}
+  >
+    <Chart
+      type="matrix"
+      data={heatmapDataset(charts["ardl-impact"])}
+      options={{
+        maintainAspectRatio: false,
+        layout: {
+          padding: { top: 8, right: 12, bottom: 8, left: 0 }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => {
+                const item = items[0]
+                const row = charts["ardl-impact"][item.raw.y]
+                const col = item.raw.x === 0 ? "Short Run" : "Long Run"
+                return `${row?.variable || ""} — ${col}`
+              },
+              label: (ctx) => `Coefficient: ${Number(ctx.raw.v).toExponential(3)}`
+            }
+          }
+        },
+        scales: {
+          x: {
+            type: "linear",
+            min: -0.5,
+            max: 1.5,
+            offset: false,
+            grid: { display: false },
+            ticks: {
+              stepSize: 1,
+              autoSkip: false,
+              callback: (value) => {
+                if (value === 0) return "Short Run"
+                if (value === 1) return "Long Run"
+                return ""
+              }
+            }
+          },
+          y: {
+            type: "linear",
+            min: -0.5,
+            max: charts["ardl-impact"].length - 0.5,
+            reverse: true, // top-to-bottom clean reading
+            offset: false,
+            grid: { display: false },
+            ticks: {
+              autoSkip: false,
+              callback: (value) => {
+                const row = charts["ardl-impact"][Math.round(value)]
+                return row ? row.variable : ""
+              }
+            }
+          }
+        }
+      }}
+    />
+  </ChartCard>
+)}
+
+{charts["ardl-short-significance"] && (
+  <ChartCard
+    title="ARDL Short-run Coefficients (Significance Highlighted)"
+    height={Math.max(420, charts["ardl-short-significance"].length * 28 + 120)}
+  >
+    <Bar
+      data={ardlSignificanceDataset(charts["ardl-short-significance"])}
+      options={{
+        ...ardlSignificanceOpts,
+        plugins: {
+          ...ardlSignificanceOpts.plugins,
+          tooltip: {
+            callbacks: {
+              title: (items) => items[0]?.label || "",
+              label: (ctx) => {
+                const row = charts["ardl-short-significance"][ctx.dataIndex]
+                return [
+                  `Coefficient: ${Number(row.value).toExponential(3)}`,
+                  `p-value: ${Number(row.p_value).toExponential(3)}`,
+                  row.is_significant ? "Significant (p < 0.05)" : "Not significant"
+                ]
+              }
+            }
+          }
+        }
+      }}
+    />
+  </ChartCard>
+)}
       </div>
 
       {/* RSUI Trend */}
-      <div className="rsui-card">
-        <h3 className="chart-title">Overall RSUI Trend</h3>
-        <p className="chart-sub">Composite social unrest index over time</p>
-        <div style={{ height: 220 }}>
-          <Line data={rsLine} options={lineOpts} />
-        </div>
-      </div>
+            <div className="rsui-card">
+              <h3 className="chart-title">Overall RSUI Trend</h3>
+      
+              <div style={{ height: 220 }}>
+                <Line data={rsuiLine} options={lineOpts} />
+              </div>
+            </div>
 
       {/* Insights */}
       <div className="insights-section">
-        <div className="insights-header">
-          <span className="insights-bulb">💡</span>
-          <div>
-            <h3 className="insights-title">Key Insights &amp; Predictions</h3>
-            <p className="insights-sub">AI-generated analysis based on current trends</p>
+        {insights.map((ins) => (
+          <div key={ins.id} className={`insight-card insight-${ins.type}`}>
+            <span>{ins.icon}</span>
+            <strong>{ins.title}</strong>
+            <p>{ins.description}</p>
           </div>
-        </div>
-        <div className="insights-grid">
-          {insights.map((ins) => <InsightCard key={ins.id} {...ins} />)}
-        </div>
+        ))}
       </div>
     </div>
   )

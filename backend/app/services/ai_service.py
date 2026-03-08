@@ -154,6 +154,15 @@ def _extract_indep(q: str) -> Optional[str]:
             "group", "groups",
             "category", "categories"
         ]):
+    if any(k in qn for k in [
+        "government expenditure", "public expenditure", "government spending", "public spending",
+        "gov expenditure", "gov exp", "govt expenditure", "expanditure"
+    ]):
+        if any(k in qn for k in [
+            "capital", "recurrent", "type", "types",
+            "group", "groups",
+            "category", "categories"
+        ]):
             return "government_expenditure"
         return "total_expenditure"
 
@@ -353,8 +362,86 @@ GENERAL_FAQ = {
     "compare categories of unemployment by age":
         "You can compare unemployment age categories by asking: 'compare unemployment age groups' or 'which unemployment age group affects RSUI the most?'.",
 
+
+def _is_greeting(q: str) -> bool:
+    qn = _norm(q)
+    greetings = {
+        "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
+        "thank you", "thanks", "ok", "okay", "bye"
+    }
+    return qn in greetings
+
+
+# =============================================================================
+# FAQ / General knowledge base
+# =============================================================================
+GENERAL_FAQ = {
+    "what is rsui":
+        "RSUI stands for the Reported Social Unrest Index. It is used to measure the level of reported social unrest such as protests, riots, strikes, and demonstrations.",
+
+    "what does rsui mean":
+        "RSUI stands for the Reported Social Unrest Index. It is used to measure the level of reported social unrest such as protests, riots, strikes, and demonstrations.",
+
+    "how have you got the results":
+        "The results were obtained by training ARDL econometric models using data collected from multiple official sources and then storing the estimated relationships in the analysis output.",
+
+    "how did you get the results":
+        "The results were obtained by training ARDL econometric models using data collected from multiple official sources and then storing the estimated relationships in the analysis output.",
+
+    "how were the results obtained":
+        "The results were obtained using ARDL econometric models that estimate the relationship between RSUI and economic indicators in both the short run and long run.",
+
+    "what model is used":
+        "The analysis uses the ARDL model, which stands for AutoRegressive Distributed Lag. It is used to study both short-run and long-run relationships between variables.",
+
+    "which model is used":
+        "The analysis uses the ARDL model, which stands for AutoRegressive Distributed Lag. It is used to study both short-run and long-run relationships between variables.",
+
+    "what is ardl":
+        "ARDL stands for AutoRegressive Distributed Lag. It is an econometric model used to estimate both short-run and long-run relationships between variables.",
+
+    "sources of the data":
+        "The data used in this research come from official sources such as the Central Bank of Sri Lanka (CBSL), the Department of Census and Statistics, and annual reports.",
+
+    "what are the data sources":
+        "The data sources include the Central Bank of Sri Lanka (CBSL), the Department of Census and Statistics, and annual reports.",
+
+    "what data sources are used":
+        "The data sources include the Central Bank of Sri Lanka (CBSL), the Department of Census and Statistics, and annual reports.",
+
+    "available categories of unemployment by age":
+        "You can ask the chatbot to list the unemployment age categories in the analysis. For example: 'list unemployment age groups' or 'show unemployment age groups'.",
+
+    "compare categories of unemployment by age":
+        "You can compare unemployment age categories by asking: 'compare unemployment age groups' or 'which unemployment age group affects RSUI the most?'.",
+
     "compare agri production":
         "You can compare agricultural production categories by asking: 'compare agri production categories' or 'which agri production category affects RSUI the most?'.",
+
+    "what variables are analysed":
+        "The analysis focuses on RSUI against variables such as unemployment, government expenditure, GDP, wages, personal consumption expenditure, and agricultural production depending on the available model outputs.",
+
+    "what variables are analyzed":
+        "The analysis focuses on RSUI against variables such as unemployment, government expenditure, GDP, wages, personal consumption expenditure, and agricultural production depending on the available model outputs.",
+
+    "what is the purpose of this chatbot":
+        "This chatbot is designed to explain the econometric results and answer general questions related to the research project.",
+
+    "what does a p value mean":
+        "A p-value shows the statistical significance of a result. In this project, a p-value below 0.05 is usually treated as statistically significant.",
+
+    "what is a p value":
+        "A p-value shows the statistical significance of a result. In this project, a p-value below 0.05 is usually treated as statistically significant.",
+}
+
+
+def _check_general_faq(question: str) -> Optional[str]:
+    q = _norm(question)
+    for k, v in GENERAL_FAQ.items():
+        if k in q:
+            return v
+    return None
+
 
     "what variables are analysed":
         "The analysis focuses on RSUI against variables such as unemployment, government expenditure, GDP, wages, personal consumption expenditure, and agricultural production depending on the available model outputs.",
@@ -475,8 +562,18 @@ _VAGUE_PATTERNS = [
     r"^\s*(give\s+details|details|show\s+details|show\s+stats|stats|numbers)\s*$",
     r"^\s*(explain\s+more|more\s+info|tell\s+me\s+more|explain)\s*$",
 
+
     r"^\s*(why\??)\s*$",
     r"^\s*(how\??)\s*$",
+
+    r"^\s*(what\s+is\s+this)\s*$",
+    r"^\s*(what\s+is\s+this\s+value)\s*$",
+    r"^\s*(what\s+does\s+this\s+mean)\s*$",
+    r"^\s*(this\s+value)\s*$",
+    r"^\s*(this\s+result)\s*$",
+    r"^\s*(that\s+value)\s*$",
+    r"^\s*(that\s+result)\s*$",
+
 
     r"^\s*(what\s+is\s+this)\s*$",
     r"^\s*(what\s+is\s+this\s+value)\s*$",
@@ -540,6 +637,7 @@ def retrieve_relevant_rows(
     group_type = _extract_group_type(effective_query, indep)
 
     if indep and not group_type:
+    if indep and not group_type:
         group_type = _auto_group_type_for_indep(indep)
 
     group_label_exact = _extract_group_label_exact(effective_query)
@@ -586,6 +684,7 @@ def retrieve_relevant_rows(
         df = _filter(dep="rsui", indep=indep, horizon=horizon, group_type=group_type, group_label_exact=group_label_exact, group_hint=None)
     if df.empty and group_type:
         df = _filter(dep="rsui", indep=indep, horizon=None, group_type=None, group_label_exact=group_label_exact, group_hint=group_hint)
+        df = _filter(dep="rsui", indep=indep, horizon=None, group_type=None, group_label_exact=group_label_exact, group_hint=group_hint)
     if df.empty and horizon:
         df = _filter(dep="rsui", indep=indep, horizon=None, group_type=group_type, group_label_exact=group_label_exact, group_hint=group_hint)
 
@@ -620,11 +719,27 @@ def _rows_context_json(rows: List[Dict[str, Any]], max_rows: int = 10) -> str:
 
 
 def _make_system_prompt(show_stats: bool, has_analysis_rows: bool) -> str:
+def _make_system_prompt(show_stats: bool, has_analysis_rows: bool) -> str:
     stats_rule = (
         "- Include key numbers such as effect_value, pvalue, and n_obs if present.\n"
         if show_stats else
         "- Do not dump lots of numbers; summarize direction and significance briefly. End with: '(Say show details for numbers.)'.\n"
+        "- Do not dump lots of numbers; summarize direction and significance briefly. End with: '(Say show details for numbers.)'.\n"
     )
+
+    if has_analysis_rows:
+        source_rule = (
+            "- The provided rows are from our analysis. Base your answer only on those rows.\n"
+            "- Do not say 'relationship table' or 'database'.\n"
+            "- Use natural phrases like 'According to our analysis', 'Based on our analysis', or 'The analysis suggests'.\n"
+        )
+    else:
+        source_rule = (
+            "- No analysis rows are provided for this question.\n"
+            "- Answer naturally using general knowledge.\n"
+            "- Do not mention missing tables, files, or internal retrieval steps.\n"
+        )
+
 
     if has_analysis_rows:
         source_rule = (
@@ -644,13 +759,21 @@ def _make_system_prompt(show_stats: bool, has_analysis_rows: bool) -> str:
         "Handle greetings such as hi, hello, hey, thanks, and bye naturally and briefly.\n"
         "Be friendly for greetings, but concise.\n"
         f"{source_rule}"
+        "Handle greetings such as hi, hello, hey, thanks, and bye naturally and briefly.\n"
+        "Be friendly for greetings, but concise.\n"
+        f"{source_rule}"
         "Rules:\n"
         "- Do not invent coefficients, p-values, categories, or model results.\n"
         "- Direction comes from effect_value sign: >0 increases RSUI, <0 decreases RSUI.\n"
         "- Confidence from pvalue: <0.01 high, <0.05 moderate, else low.\n"
         "- Mention statistical significance only if pvalue is available.\n"
         "- If pvalue is missing, do NOT mention significance.\n"
+        "- Confidence from pvalue: <0.01 high, <0.05 moderate, else low.\n"
+        "- Mention statistical significance only if pvalue is available.\n"
+        "- If pvalue is missing, do NOT mention significance.\n"
         f"{stats_rule}"
+        "- If the analysis rows include a total or overall row for total unemployment or total expenditure, prefer that row instead of subgroup rows.\n"
+        "- Keep the answer concise, clear, and presentation-friendly.\n"
         "- If the analysis rows include a total or overall row for total unemployment or total expenditure, prefer that row instead of subgroup rows.\n"
         "- Keep the answer concise, clear, and presentation-friendly.\n"
     )
@@ -668,6 +791,12 @@ def get_ai_response(
     session_id = session_id or "default-session"
     state = _SESSION_MEM.setdefault(session_id, RetrievalState())
 
+    # 1) FAQ first
+    faq_answer = _check_general_faq(q)
+    if faq_answer:
+        return faq_answer
+
+    # 2) direct details for last shown results
     # 1) FAQ first
     faq_answer = _check_general_faq(q)
     if faq_answer:
@@ -704,10 +833,34 @@ def get_ai_response(
             if qn == "bye":
                 return "Goodbye."
             return "Hello."
+        return "Nothing to show details for yet. Ask a question first."
+
+    # 3) greetings through LLM/general response
+    if _is_greeting(q):
+        if _GROQ_CLIENT is None:
+            qn = _norm(q)
+            if qn in {"thank you", "thanks"}:
+                return "You're welcome."
+            if qn == "bye":
+                return "Goodbye."
+            return "Hello."
+        try:
+            return _groq_chat([
+                {"role": "system", "content": _make_system_prompt(show_stats=False, has_analysis_rows=False)},
+                {"role": "user", "content": q}
+            ])
+        except Exception:
+            qn = _norm(q)
+            if qn in {"thank you", "thanks"}:
+                return "You're welcome."
+            if qn == "bye":
+                return "Goodbye."
+            return "Hello."
 
     big_intent = _is_compare_intent(q) or _is_top_impact_intent(q) or _is_list_groups_intent(q)
     limit = 500 if big_intent else 12
 
+    # 4) Try analysis rows
     # 4) Try analysis rows
     rows = retrieve_relevant_rows(
         message=q,
@@ -718,7 +871,32 @@ def get_ai_response(
     )
 
     # 5) If no matching analysis result, answer generally
+
+    # 5) If no matching analysis result, answer generally
     if not rows:
+        if _GROQ_CLIENT is None:
+            return "I couldn't find a matching analysis result, and Groq is not configured for a general response."
+
+        messages: List[Dict[str, str]] = [
+            {"role": "system", "content": _make_system_prompt(show_stats=False, has_analysis_rows=False)}
+        ]
+
+        if history:
+            for m in history[-8:]:
+                role = (m.get("role") or "").strip().lower()
+                content = m.get("content")
+                if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
+                    messages.append({"role": role, "content": content.strip()})
+
+        messages.append({
+            "role": "user",
+            "content": f"User question: {message}"
+        })
+
+        try:
+            return _groq_chat(messages)
+        except Exception as e:
+            return f"General response failed: {type(e).__name__}: {e}"
         if _GROQ_CLIENT is None:
             return "I couldn't find a matching analysis result, and Groq is not configured for a general response."
 
@@ -788,6 +966,9 @@ def get_ai_response(
     messages: List[Dict[str, str]] = [
         {"role": "system", "content": _make_system_prompt(show_stats, has_analysis_rows=True)}
     ]
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": _make_system_prompt(show_stats, has_analysis_rows=True)}
+    ]
 
     if history:
         for m in history[-8:]:
@@ -800,6 +981,7 @@ def get_ai_response(
         "role": "user",
         "content": (
             f"User question: {message}\n\n"
+            f"Analysis rows (JSON):\n{context_json}\n"
             f"Analysis rows (JSON):\n{context_json}\n"
         )
     })

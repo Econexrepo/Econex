@@ -3,7 +3,12 @@ import { useAuth } from '../context/AuthContext'
 import './Sidebar.css'
 
 const NAV_ITEMS = [
-  { path: '/dashboard', label: 'Dashboard', icon: '▣' },
+  { path: '/dashboard', label: 'PCE', icon: '▣' },
+  { path: '/unemployment', label: 'Unemployment', icon: '▣' },
+  { path: '/wages', label: 'Wages', icon: '▣' },
+  { path: '/agriculture', label: 'Agriculture', icon: '▣' },
+  { path: '/GDP', label: 'GDP', icon: '▣' },
+  { path: '/Expenditure', label: 'Government Expenditure', icon: '▣' },
   { path: '/chat',      label: 'Chat',      icon: '☰' },
   { path: '/settings',  label: 'Settings',  icon: '⚙' },
 ]
