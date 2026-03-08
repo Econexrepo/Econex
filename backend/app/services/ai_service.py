@@ -8,7 +8,7 @@ from typing import Optional, List, Dict, Any, Tuple
 
 import pandas as pd
 
-# Groq via OpenAI-compatible client
+# Groq via OpenAI-compatible client (same approach as your friend's file)
 from openai import OpenAI
 
 
@@ -26,6 +26,12 @@ if _GROQ_API_KEY:
         base_url="https://api.groq.com/openai/v1",
     )
 
+_GROQ_CLIENT: Optional[OpenAI] = None
+if _GROQ_API_KEY:
+    _GROQ_CLIENT = OpenAI(
+        api_key=_GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1",
+    )
 
 def _groq_chat(messages: List[Dict[str, str]]) -> str:
     if _GROQ_CLIENT is None:
@@ -43,7 +49,7 @@ def _groq_chat(messages: List[Dict[str, str]]) -> str:
 
 
 # =============================================================================
-# Load relationship_table.csv
+# Load relationship_table.csv (your robust search)
 # =============================================================================
 def _find_relationship_table() -> pathlib.Path:
     here = pathlib.Path(__file__).resolve()
@@ -71,7 +77,7 @@ def _load_relationship_table() -> pd.DataFrame:
 
     for c in ["dep_var", "indep_var", "group_type", "group_label", "horizon", "description", "source_file", "status"]:
         if c in df.columns:
-            df[c] = df[c].fillna("").astype(str)
+            df[c] = df[c].astype(str).fillna("")
 
     for c in ["effect_value", "pvalue", "aic", "bic", "n_obs"]:
         if c in df.columns:
@@ -95,7 +101,7 @@ GLABEL_VOCAB: List[str] = sorted(set(_REL["_glabel_l"].dropna()), key=len, rever
 
 
 # =============================================================================
-# Text helpers
+# Text helpers (your logic)
 # =============================================================================
 def _norm(s: str) -> str:
     s = str(s or "").lower().strip()
@@ -112,12 +118,18 @@ def _is_details_only(q: str) -> bool:
     return _norm(q) in DETAILS_ONLY_SET
 
 
+DETAILS_ONLY_SET = {"show details", "details", "show stats", "stats", "numbers", "show numbers"}
+
+
+def _is_details_only(q: str) -> bool:
+    return _norm(q) in DETAILS_ONLY_SET
+
+
 def _wants_details(q: str) -> bool:
     qn = _norm(q)
     return any(k in qn for k in [
         "show details", "details", "numbers", "stats", "statistics",
-        "p value", "p values", "p-value", "p-values", "pvalue",
-        "coef", "coefficient", "coefficients", "aic", "bic", "n obs", "n_obs"
+        "p value", "p-value", "pvalue", "coef", "coefficient", "aic", "bic"
     ])
 
 
@@ -155,11 +167,7 @@ def _extract_indep(q: str) -> Optional[str]:
         return "total_expenditure"
 
     if "expenditure" in qn or "spending" in qn:
-        if any(k in qn for k in [
-            "capital", "recurrent", "type", "types",
-            "group", "groups",
-            "category", "categories"
-        ]):
+        if any(k in qn for k in ["capital", "recurrent", "type"]):
             return "government_expenditure"
         return "total_expenditure"
 
@@ -169,10 +177,6 @@ def _extract_indep(q: str) -> Optional[str]:
         "pce": ["pce", "consumption", "consumption expenditure", "personal consumption"],
         "wage": ["wage", "wages", "salary", "salaries", "earnings", "income", "pay"],
         "total_expenditure": ["total expenditure", "overall expenditure", "total spending"],
-        "agri_production_output": [
-            "agri production", "agri production output",
-            "agriculture production", "agricultural production"
-        ],
     }
 
     for indep, keys in synonyms.items():
@@ -189,8 +193,8 @@ def _extract_indep(q: str) -> Optional[str]:
 def _is_compare_intent(q: str) -> bool:
     qn = _norm(q)
     return any(w in qn for w in [
-        "compare", "comparison", "group comparison", "compare categories", "compare groups",
-        "rank", "ranking", "top", "best", "worst", "highest", "lowest",
+        "compare", "comparison", "rank", "ranking",
+        "top", "best", "worst", "highest", "lowest",
         "strongest", "largest", "smallest", "vs", "versus"
     ])
 
@@ -211,33 +215,12 @@ def _is_top_impact_intent(q: str) -> bool:
 def _is_list_groups_intent(q: str) -> bool:
     qn = _norm(q)
     return any(w in qn for w in [
-        "list groups",
-        "list group",
-        "list group labels",
-        "list labels",
-        "show groups",
-        "show categories",
-        "show group labels",
-        "show labels",
-        "all groups",
-        "all categories",
-        "all group labels",
-        "what groups",
-        "what categories",
-        "which groups are there",
-        "which groups",
-        "which categories",
-        "group labels",
-        "available groups",
-        "available categories",
-        "list categories",
-        "list category",
-        "show age groups",
-        "show education levels",
-        "what age groups",
-        "what education levels",
-        "categories available",
-        "groups available",
+        "list groups", "list group", "list group labels", "list labels",
+        "show groups", "show group labels", "show labels",
+        "all groups", "all categories", "all group labels",
+        "what groups", "what categories", "which groups are there",
+        "group labels", "available groups", "available categories",
+        "list categories"
     ])
 
 
@@ -247,27 +230,17 @@ def _extract_group_type(q: str, indep: Optional[str]) -> Optional[str]:
     if indep == "wage" and any(k in qn for k in ["compare", "comparison", "rank", "top", "affect the most", "most impact"]):
         return "category_name"
 
-    if re.search(r"(?<!\w)(agri|agricultural|agriculture)\s*production(\s*output)?(?!\w)", qn):
-        return "element_item"
-
     if "age" in qn:
         return "age_group"
     if "education" in qn or re.search(r"(?<!\w)edu(?!\w)", qn):
         return "edu"
-    if any(k in qn for k in ["capital", "recurrent", "expenditure type", "exp type", "types"]):
+    if any(k in qn for k in ["capital", "recurrent", "expenditure type", "exp type", "type"]):
         return "exp_type"
     if "sector" in qn:
         return "sector_name"
-
-    if any(k in qn for k in ["category", "category name", "categories", "by category"]):
+    if any(k in qn for k in ["category", "categories", "by category"]):
         if indep == "wage":
             return "category_name"
-        if indep == "gdp":
-            return "sector_name"
-        if indep == "agri_production_output":
-            return "element_item"
-        if indep == "government_expenditure":
-            return "exp_type"
         return "category"
 
     for gt in GTYPE_VOCAB:
@@ -290,10 +263,9 @@ def _extract_group_label_exact(q: str) -> Optional[str]:
     for lbl in GLABEL_VOCAB:
         if not lbl:
             continue
-        lbl_norm = _norm(lbl)
-        if re.search(r"(?<!\w)" + re.escape(lbl_norm) + r"(?!\w)", qn):
+        if re.search(r"(?<!\w)" + re.escape(lbl) + r"(?!\w)", qn):
             return lbl
-        if lbl_norm in qn:
+        if lbl.replace("_", " ") in qn:
             return lbl
     return None
 
@@ -379,7 +351,7 @@ def _check_general_faq(question: str) -> Optional[str]:
 
 
 # =============================================================================
-# Filtering / ranking
+# Filtering / ranking (your logic)
 # =============================================================================
 def _filter(
     dep: str = "rsui",
@@ -452,7 +424,7 @@ def _prefer_long_run_if_available(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # =============================================================================
-# Session memory
+# Session memory (your logic)
 # =============================================================================
 @dataclass
 class RetrievalState:
@@ -550,7 +522,7 @@ def retrieve_relevant_rows(
     if not group_label_exact:
         qn = _norm(effective_query)
         cleaned = re.sub(
-            r"(rsui|relationship|relation|association|link|impact|effect|influence|between|with|versus|vs|compare|rank|top|best|worst|highest|lowest|strongest|details|stats|statistics|list|groups|group\s*labels|labels|categories|category|show|available|what|which)",
+            r"(rsui|relationship|relation|association|link|impact|effect|influence|between|with|versus|vs|compare|rank|top|best|worst|highest|lowest|strongest|details|stats|statistics|list|groups|group\s*labels|labels)",
             " ",
             qn,
         )
@@ -618,7 +590,7 @@ def _rows_context_json(rows: List[Dict[str, Any]], max_rows: int = 10) -> str:
 
 def _make_system_prompt(show_stats: bool, has_analysis_rows: bool) -> str:
     stats_rule = (
-        "- Include key numbers such as effect_value, pvalue, and n_obs if present.\n"
+        "- Include key numbers (effect_value, pvalue, and n_obs if present).\n"
         if show_stats else
         "- Do not dump lots of numbers; summarize direction and significance briefly. End with: '(Say show details for numbers.)'.\n"
     )
@@ -642,7 +614,7 @@ def _make_system_prompt(show_stats: bool, has_analysis_rows: bool) -> str:
         "Be friendly for greetings, but concise.\n"
         f"{source_rule}"
         "Rules:\n"
-        "- Do not invent coefficients, p-values, categories, or model results.\n"
+        "- Do not invent coefficients, p-values, categories, or data.\n"
         "- Direction comes from effect_value sign: >0 increases RSUI, <0 decreases RSUI.\n"
         "- Confidence from pvalue: <0.01 high, <0.05 moderate, else low.\n"
         "- Mention statistical significance only if pvalue is available.\n"
@@ -673,6 +645,7 @@ def get_ai_response(
     # 2) direct details for last shown results
     if _is_details_only(q):
         if state.last_presented_rows:
+            # return deterministic details without Groq (fast + precise)
             lines = ["**Details for the last shown result(s):**"]
             for r in state.last_presented_rows[:12]:
                 lines.append(pd.Series(r).to_string())
@@ -703,7 +676,7 @@ def get_ai_response(
             return "Hello."
 
     big_intent = _is_compare_intent(q) or _is_top_impact_intent(q) or _is_list_groups_intent(q)
-    limit = 500 if big_intent else 12
+    limit = 150 if big_intent else 12
 
     # 4) Try analysis rows
     rows = retrieve_relevant_rows(
@@ -743,16 +716,18 @@ def get_ai_response(
     df = pd.DataFrame(rows)
     show_stats = _wants_details(q)
 
+    # prefer long run for broad intents unless user forced horizon
     if big_intent and _extract_horizon(q) is None:
         df = _prefer_long_run_if_available(df)
 
+    # Decide what to PRESENT (distinct group labels for compare/top/list)
     presented_rows: List[Dict[str, Any]] = []
 
     if _is_list_groups_intent(q):
         non_total = df[~df.apply(_is_overall_row, axis=1)].copy()
         if _extract_horizon(q) is None:
             non_total = _prefer_long_run_if_available(non_total)
-        presented_df = _rank_rows(_best_row_per_group_label(non_total)).head(50)
+        presented_df = _rank_rows(_best_row_per_group_label(non_total)).head(15)
         presented_rows = presented_df.to_dict(orient="records")
 
     elif _is_top_impact_intent(q) or _is_compare_intent(q):
@@ -760,7 +735,7 @@ def get_ai_response(
         if non_total.empty:
             non_total = df.copy()
         distinct = _best_row_per_group_label(non_total)
-        ranked = _rank_most_affecting(distinct, k=min(50, len(distinct)))
+        ranked = _rank_most_affecting(distinct, k=min(20, len(distinct)))
         presented_rows = ranked.to_dict(orient="records")
 
     else:
@@ -771,21 +746,25 @@ def get_ai_response(
             best = _rank_rows(df).iloc[0].to_dict()
             presented_rows = [best]
 
+    # store what we showed (enables "show details")
     state.last_presented_rows = presented_rows
 
+    # If Groq isn't configured, fallback to deterministic dump (but still works)
     if _GROQ_CLIENT is None:
         return (
             "Groq is not configured (missing GROQ_API_KEY). "
             "Set GROQ_API_KEY to enable LLM responses.\n\n"
-            + _rows_context_json(presented_rows, max_rows=50)
+            + _rows_context_json(presented_rows, max_rows=10)
         )
 
+    # Groq: generate natural language grounded in presented_rows
     context_json = _rows_context_json(presented_rows, max_rows=10)
 
     messages: List[Dict[str, str]] = [
         {"role": "system", "content": _make_system_prompt(show_stats, has_analysis_rows=True)}
     ]
 
+    # small history slice for continuity
     if history:
         for m in history[-8:]:
             role = (m.get("role") or "").strip().lower()

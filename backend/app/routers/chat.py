@@ -147,6 +147,7 @@ async def send_message(
     }
     session["messages"].append(user_msg)
 
+    # Deterministic (no LLM)
     ai_content = get_ai_response(
         body.message,
         history=session["messages"],
@@ -180,30 +181,35 @@ def _detect_tag(text: str) -> str:
     """
     t = (text or "").lower()
 
+    # prioritize RSUI/unrest terms
     if any(w in t for w in ["rsui", "unrest", "protest", "riot", "strike", "demonstration"]):
         return "RSUI"
 
+    # dynamic indep
     for indep in sorted(INDEP_KEYWORDS, key=len, reverse=True):
         if indep and (indep in t or indep.replace("_", " ") in t):
             return indep.replace("_", " ").title()
 
+    # dynamic group_type
     for gt in sorted(GROUPTYPE_KEYWORDS, key=len, reverse=True):
         if gt and (gt in t or gt.replace("_", " ") in t):
             return gt.replace("_", " ").title()
 
+    # dynamic group_label (avoid noisy "Total ..." tags)
     for gl in sorted(GROUPLABEL_KEYWORDS, key=len, reverse=True):
         if gl and (gl in t or gl.replace("_", " ") in t):
             if gl.lower().startswith("total"):
                 continue
             return gl.replace("_", " ").title()
 
+    # fallback keywords
     if any(w in t for w in ["government expenditure", "public expenditure", "spending", "budget", "fiscal", "expanditure", "gov exp"]):
         return "Gov Expenditure"
     if any(w in t for w in ["wage", "salary", "earnings", "income", "pay"]):
         return "Wages"
     if any(w in t for w in ["unemployment", "jobless", "employment rate"]):
         return "Unemployment"
-    if any(w in t for w in ["gdp", "gross domestic", "sector", "industry", "services"]):
+    if any(w in t for w in ["gdp", "gross domestic", "sector", "agriculture", "industry", "services"]):
         return "GDP"
     if any(w in t for w in ["pce", "consumption"]):
         return "PCE"
