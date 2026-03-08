@@ -636,6 +636,12 @@ export default function Chat() {
   const [domainSubsectors, setDomainSubsectors] = useState({})
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
+  const activeIdRef = useRef(null)
+
+  const activateSession = (id) => {
+    activeIdRef.current = id || null
+    setActiveId(id || null)
+  }
 
   // Scroll to bottom on new message
   useEffect(() => {
@@ -650,7 +656,7 @@ export default function Chat() {
         const { data } = await api.get('/api/chat/sessions')
         setSessions(data)
         if (data.length > 0) {
-          setActiveId(data[0].id)
+          activateSession(data[0].id)
           // Load messages for first session
           const { data: sess } = await api.get(`/api/chat/sessions/${data[0].id}`)
           setMessages(hydrateMessages(sess.messages || []))
@@ -687,7 +693,7 @@ export default function Chat() {
 
   // Load messages for selected session
   const selectSession = async (id) => {
-    setActiveId(id)
+    activateSession(id)
     try {
       const { data } = await api.get(`/api/chat/sessions/${id}`)
       setMessages(hydrateMessages(data.messages || []))
@@ -701,7 +707,7 @@ export default function Chat() {
     try {
       const { data } = await api.post('/api/chat/sessions')
       setSessions((prev) => [data, ...prev])
-      setActiveId(data.id)
+      activateSession(data.id)
       setMessages([])
       inputRef.current?.focus()
     } catch (err) {
@@ -720,7 +726,7 @@ export default function Chat() {
         if (remaining.length > 0) {
           selectSession(remaining[0].id)
         } else {
-          setActiveId(null)
+          activateSession(null)
           setMessages([])
         }
       }
@@ -733,6 +739,14 @@ export default function Chat() {
   const sendMessage = async (overrideText) => {
     const text = (overrideText || input).trim()
     if (!text || sending) return
+
+    const currentSessionId = activeIdRef.current
+    if (!currentSessionId) {
+      setError('Click + New to start a chat, then send messages in that chat.')
+      inputRef.current?.focus()
+      return
+    }
+
     setInput('')
     setSending(true)
     setError(null)
@@ -819,7 +833,7 @@ export default function Chat() {
         try {
           const imageDataUrl = await captureChartImageById(chartMsgId)
           const saveBody = {
-            session_id: activeId,
+            session_id: currentSessionId,
             message: text,
             caption: _chartCaption(graphRequest),
             chart_payload: {
@@ -830,8 +844,8 @@ export default function Chat() {
             image_data_url: imageDataUrl,
           }
           const { data: persisted } = await api.post('/api/chat/chart-message', saveBody)
-          if (!activeId && persisted?.session_id) {
-            setActiveId(persisted.session_id)
+          if (!activeIdRef.current && persisted?.session_id) {
+            activateSession(persisted.session_id)
           }
         } catch (saveErr) {
           console.error('Failed to persist chart message', saveErr)
@@ -857,9 +871,12 @@ export default function Chat() {
     // ── Normal AI text message ─────────────────────────────────────────────
     try {
       const { data } = await api.post('/api/chat/message', {
-        session_id: activeId,
+        session_id: currentSessionId,
         message: text,
       })
+      if (!activeIdRef.current && data?.session_id) {
+        activateSession(data.session_id)
+      }
       const aiMsg = {
         role: 'assistant',
         content: data.content,

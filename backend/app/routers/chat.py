@@ -267,22 +267,12 @@ async def send_message(
     current_user: UserOut = Depends(get_current_user),
     db: Session = Depends(get_auth_db),
 ):
-    session = None
-    if body.session_id:
-        session = _get_session_row(db, current_user.id, body.session_id)
-
+    if not body.session_id:
+        raise HTTPException(status_code=400, detail="session_id is required. Create/select a chat first.")
+    session = _get_session_row(db, current_user.id, body.session_id)
     if not session:
-        title = body.message[:40] + ("..." if len(body.message) > 40 else "")
-        session_data = _create_session_record(
-            db,
-            current_user.id,
-            title=title,
-            preview=body.message[:80],
-            tag=_detect_tag(body.message),
-        )
-        session_id = session_data["id"]
-    else:
-        session_id = session[0]
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_id = session[0]
 
     db.execute(
         text("""
@@ -358,22 +348,12 @@ async def send_chart_message(
     current_user: UserOut = Depends(get_current_user),
     db: Session = Depends(get_auth_db),
 ):
-    session = None
-    if body.session_id:
-        session = _get_session_row(db, current_user.id, body.session_id)
-
+    if not body.session_id:
+        raise HTTPException(status_code=400, detail="session_id is required. Create/select a chat first.")
+    session = _get_session_row(db, current_user.id, body.session_id)
     if not session:
-        title = body.message[:40] + ("..." if len(body.message) > 40 else "")
-        session_data = _create_session_record(
-            db,
-            current_user.id,
-            title=title,
-            preview=body.message[:80],
-            tag=_detect_tag(body.message),
-        )
-        session_id = session_data["id"]
-    else:
-        session_id = session[0]
+        raise HTTPException(status_code=404, detail="Session not found")
+    session_id = session[0]
 
     db.execute(
         text("""
