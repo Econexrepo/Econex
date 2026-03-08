@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app.routers import auth, dashboard, chat, settings, unemployment, wages, gdp, governmentexpenditure, agriculture
+from app.routers import auth, dashboard, chat, settings, unemployment, wages, gdp, governmentexpenditure, agriculture, graphs
 from dotenv import load_dotenv
 
 
@@ -135,6 +135,7 @@ app.include_router(agriculture.router, prefix="/api/agriculture", tags=["agricul
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(governmentexpenditure.router, prefix="/api/government-expenditure", tags=["Government Expenditure"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(graphs.router, prefix="/api/graphs", tags=["Graphs"])
 
 
 # ── Health ─────────────────────────────────────────────────────────────────────
