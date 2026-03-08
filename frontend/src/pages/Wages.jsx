@@ -237,50 +237,6 @@ const lineOpts = {
   plugins: { legend: { display: false } },
 }
 
-const gdpTrendOpts = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: {
-      display: true,
-      position: 'bottom',
-      labels: {
-        boxWidth: 12,
-        padding: 12,
-        font: { size: 11 },
-      },
-    },
-    tooltip: {
-      callbacks: {
-        label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toFixed(2)}%`,
-      },
-    },
-  },
-  scales: {
-    x: {
-      grid: { display: false },
-      title: {
-        display: true,
-        text: 'Year',
-      },
-      ticks: {
-        autoSkip: true,
-        maxTicksLimit: 10,
-      },
-    },
-    y: {
-      grid: { color: '#e5e7eb' },
-      title: {
-        display: true,
-        text: 'GDP Growth (%)',
-      },
-      ticks: {
-        callback: (v) => `${v}%`,
-      },
-    },
-  },
-}
-
 // ─────────────────────────────────────────────────────────
 // Chart card
 // ─────────────────────────────────────────────────────────
@@ -291,53 +247,6 @@ function ChartCard({ title, children, height = 220 }) {
       <div style={{ height }}>{children}</div>
     </div>
   )
-}
-
-function gdpSectorTrendDataset(data = []) {
-  if (!Array.isArray(data) || data.length === 0) {
-    return { labels: [], datasets: [] }
-  }
-
-  const years = [...new Set(data.map((d) => Number(d.year)))].sort((a, b) => a - b)
-  const categories = [...new Set(data.map((d) => d.category))]
-
-  const LINE_COLORS = [
-    '#3b82f6',
-    '#10b981',
-    '#f59e0b',
-    '#ef4444',
-    '#8b5cf6',
-    '#06b6d4',
-    '#ec4899',
-    '#84cc16',
-  ]
-
-  const datasets = categories.map((category, idx) => {
-    const yearValueMap = new Map()
-
-    data
-      .filter((d) => d.category === category)
-      .forEach((d) => {
-        yearValueMap.set(Number(d.year), Number(d.value))
-      })
-
-    return {
-      label: category,
-      data: years.map((y) => yearValueMap.get(y) ?? null),
-      borderColor: LINE_COLORS[idx % LINE_COLORS.length],
-      backgroundColor: LINE_COLORS[idx % LINE_COLORS.length],
-      tension: 0.25,
-      fill: false,
-      pointRadius: 2,
-      pointHoverRadius: 4,
-      borderWidth: 2,
-    }
-  })
-
-  return {
-    labels: years,
-    datasets,
-  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -352,21 +261,23 @@ export default function Dashboard() {
   useEffect(() => {
     const loadDashboard = async () => {
       try {
-        const [statsRes, rsRes, insRes] = await Promise.all([
+        const [, rsRes, insRes] = await Promise.all([
           api.get('/api/dashboard/stats'),
           api.get('/api/dashboard/rsui-trend'),
           api.get('/api/dashboard/insights'),
         ])
 
-        setRsui(rsRes.data.data || [])
-        setInsights(insRes.data.insights || [])
+        setRsui(rsRes.data?.data || [])
+        setInsights(insRes.data?.insights || [])
 
         const chartNames = [
-          'gdp-sector-trend'
+          'wage-real-trend',
+          'wage-longrun-effect',
+          'wage-shortrun-effect',
         ]
 
         const chartResults = await Promise.allSettled(
-          chartNames.map((c) => api.get(`/api/gdp/charts/${c}`))
+          chartNames.map((c) => api.get(`/api/wages/charts/${c}`))
         )
 
         const chartData = {}
@@ -412,15 +323,6 @@ export default function Dashboard() {
   return (
     <div className="dashboard">
       <div className="charts-grid">
-        {Array.isArray(gdpSectorTrend) && gdpSectorTrend.length > 0 && (
-          <ChartCard title="GDP Growth Trend by Sector" height={420}>
-            <Line
-              data={gdpSectorTrendDataset(gdpSectorTrend)}
-              options={gdpTrendOpts}
-            />
-          </ChartCard>
-        )}
-
         {Array.isArray(charts['wage-real-trend']) &&
           charts['wage-real-trend'].length > 0 && (
             <ChartCard title="Real Wage Trend by Category" height={420}>

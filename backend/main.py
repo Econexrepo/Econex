@@ -26,14 +26,14 @@ _BACKEND_DIR = pathlib.Path(__file__).resolve().parent          # .../backend
 _REPO_ROOT = _BACKEND_DIR.parent                                # .../Econex
 
 # Try repo-root ardloutputs first (your current design), then backend/ardloutputs as fallback
-_ARDL_CANDIDATES = [
-    _REPO_ROOT / "ardloutputs",
-    _BACKEND_DIR / "ardloutputs",
-]
+# _ARDL_CANDIDATES = [
+#     _REPO_ROOT / "ardloutputs",
+#     _BACKEND_DIR / "ardloutputs",
+# ]
 
-_ARDL_DIR = next((p for p in _ARDL_CANDIDATES if p.exists()), _ARDL_CANDIDATES[0])
-_SHORT_RUN_PATH = _ARDL_DIR / "gdp_shortRun.csv"
-_LONG_RUN_PATH = _ARDL_DIR / "gdp_longRun.csv"
+# _ARDL_DIR = next((p for p in _ARDL_CANDIDATES if p.exists()), _ARDL_CANDIDATES[0])
+# _SHORT_RUN_PATH = _ARDL_DIR / "gdp_shortRun.csv"
+# _LONG_RUN_PATH = _ARDL_DIR / "gdp_longRun.csv"
 
 
 def _read_csv_or_empty(path: pathlib.Path, label: str) -> pd.DataFrame:
@@ -51,9 +51,9 @@ def _read_csv_or_empty(path: pathlib.Path, label: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-# Load ARDL data safely at startup/import time
-short_run_df = _read_csv_or_empty(_SHORT_RUN_PATH, "gdp_shortRun.csv")
-long_run_df = _read_csv_or_empty(_LONG_RUN_PATH, "gdp_longRun.csv")
+# # Load ARDL data safely at startup/import time
+# short_run_df = _read_csv_or_empty(_SHORT_RUN_PATH, "gdp_shortRun.csv")
+# long_run_df = _read_csv_or_empty(_LONG_RUN_PATH, "gdp_longRun.csv")
 
 
 def _available_csvs_in_ardl_dir() -> list[str]:
@@ -138,24 +138,24 @@ app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 
 
 # ── Health ─────────────────────────────────────────────────────────────────────
-@app.get("/api/health", tags=["Health"])
-async def health_check():
-    return {
-        "status": "ok",
-        "service": "Econex API",
-        "ardl_data": {
-            "resolved_ardl_dir": str(_ARDL_DIR),
-            "expected_files": {
-                "short_run": str(_SHORT_RUN_PATH),
-                "long_run": str(_LONG_RUN_PATH),
-            },
-            "available_csvs": _available_csvs_in_ardl_dir(),
-            "short_run_loaded": not short_run_df.empty,
-            "long_run_loaded": not long_run_df.empty,
-            "short_run_rows": int(len(short_run_df)) if not short_run_df.empty else 0,
-            "long_run_rows": int(len(long_run_df)) if not long_run_df.empty else 0,
-        },
-    }
+# @app.get("/api/health", tags=["Health"])
+# async def health_check():
+#     return {
+#         "status": "ok",
+#         "service": "Econex API",
+#         "ardl_data": {
+#             "resolved_ardl_dir": str(_ARDL_DIR),
+#             "expected_files": {
+#                 "short_run": str(_SHORT_RUN_PATH),
+#                 "long_run": str(_LONG_RUN_PATH),
+#             },
+#             "available_csvs": _available_csvs_in_ardl_dir(),
+#             "short_run_loaded": not short_run_df.empty,
+#             "long_run_loaded": not long_run_df.empty,
+#             "short_run_rows": int(len(short_run_df)) if not short_run_df.empty else 0,
+#             "long_run_rows": int(len(long_run_df)) if not long_run_df.empty else 0,
+#         },
+#     }
 
 
 # ── GDP / ARDL direct-data endpoints ──────────────────────────────────────────

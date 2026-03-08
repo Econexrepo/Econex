@@ -337,8 +337,6 @@ export default function Expenditure() {
           'total-expenditure-trend',
           'type-longrun-effect',
           'type-shortrun-effect',
-          'total-longrun-effect',
-          'total-shortrun-effect',
         ]
 
         const chartResults = await Promise.allSettled(
@@ -423,26 +421,6 @@ export default function Expenditure() {
             <ChartCard title="Short-run ARDL Effect by Expenditure Type" height={360}>
               <Bar
                 data={shortRunEffectBarDataset(charts['type-shortrun-effect'])}
-                options={shortRunEffectOpts}
-              />
-            </ChartCard>
-          )}
-
-        {Array.isArray(charts['total-longrun-effect']) &&
-          charts['total-longrun-effect'].length > 0 && (
-            <ChartCard title="Long-run ARDL Effect for Total Expenditure" height={300}>
-              <Bar
-                data={longRunEffectBarDataset(charts['total-longrun-effect'])}
-                options={longRunEffectOpts}
-              />
-            </ChartCard>
-          )}
-
-        {Array.isArray(charts['total-shortrun-effect']) &&
-          charts['total-shortrun-effect'].length > 0 && (
-            <ChartCard title="Short-run ARDL Effect for Total Expenditure" height={300}>
-              <Bar
-                data={shortRunEffectBarDataset(charts['total-shortrun-effect'])}
                 options={shortRunEffectOpts}
               />
             </ChartCard>
