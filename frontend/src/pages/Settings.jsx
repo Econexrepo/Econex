@@ -3,7 +3,49 @@ import { useAuth } from '../context/AuthContext'
 import api from '../api/axios'
 import './Settings.css'
 
-/* ── Eye icons (inline SVG, no extra lib needed) ───────────────────────────── */
+
+const PASSWORD_RULES = [
+  { id: 'len', label: 'At least 8 characters', test: (v) => v.length >= 8 },
+  { id: 'upper', label: 'One uppercase letter (A-Z)', test: (v) => /[A-Z]/.test(v) },
+  { id: 'lower', label: 'One lowercase letter (a-z)', test: (v) => /[a-z]/.test(v) },
+  { id: 'digit', label: 'One number (0-9)', test: (v) => /\d/.test(v) },
+  { id: 'special', label: 'One special character (!@#...)', test: (v) => /[!@#$%^&*(),.?":{}|<>\[\]'\\/_+=;`~\-]/.test(v) },
+]
+
+function getPasswordScore(password) {
+  return PASSWORD_RULES.filter((rule) => rule.test(password)).length
+}
+
+function PasswordRequirements({ password }) {
+  if (!password) return null
+
+  const score = getPasswordScore(password)
+  const label = ['', 'Very weak', 'Weak', 'Fair', 'Good', 'Strong'][score]
+  const colorClass = ['', 'pw-s1', 'pw-s2', 'pw-s3', 'pw-s4', 'pw-s5'][score]
+
+  return (
+    <div className="pw-strength">
+      <div className="pw-bars">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className={`pw-bar ${score >= i ? colorClass : ''}`} />
+        ))}
+        <span className={`pw-label ${colorClass}`}>{label}</span>
+      </div>
+      <ul className="pw-rules">
+        {PASSWORD_RULES.map((rule) => {
+          const ok = rule.test(password)
+          return (
+            <li key={rule.id} className={ok ? 'pw-rule--ok' : 'pw-rule--fail'}>
+              <span className="pw-rule-icon" aria-hidden="true">{ok ? '+' : '-'}</span>
+              {rule.label}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 const EyeIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -219,12 +261,13 @@ export default function Settings() {
   /** Validate password form — returns true if valid */
   const validatePassword = () => {
     const errs = {}
+    const score = getPasswordScore(pwForm.new_password)
 
     if (!pwForm.current_password) {
       errs.current_password = 'Enter your current password.'
     }
-    if (pwForm.new_password.length < 8) {
-      errs.new_password = 'Password must be at least 8 characters.'
+    if (score < 5) {
+      errs.new_password = 'Password must satisfy all requirements below.'
     }
     if (pwForm.new_password !== pwForm.confirm_password) {
       errs.confirm_password = 'Passwords do not match.'
@@ -261,6 +304,13 @@ export default function Settings() {
     ? user.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
     : 'U'
   const displayAvatar = avatarPreview || user?.avatar_url
+  const isNewPasswordStrong = getPasswordScore(pwForm.new_password) === 5
+  const isPasswordFormValid =
+    !!pwForm.current_password &&
+    !!pwForm.new_password &&
+    !!pwForm.confirm_password &&
+    isNewPasswordStrong &&
+    pwForm.new_password === pwForm.confirm_password
 
   return (
     <div className="settings-page">
@@ -482,6 +532,7 @@ export default function Settings() {
                 {pwErrors.new_password && (
                   <span className="field-error">{pwErrors.new_password}</span>
                 )}
+                <PasswordRequirements password={pwForm.new_password} />
               </div>
             </div>
           </div>
@@ -516,7 +567,7 @@ export default function Settings() {
               id="settings-change-pw-btn"
               type="submit"
               className="save-btn"
-              disabled={changingPw}
+              disabled={changingPw || !isPasswordFormValid}
             >
               {changingPw ? 'Updating…' : 'Change Password'}
             </button>
@@ -527,3 +578,4 @@ export default function Settings() {
     </div>
   )
 }
+

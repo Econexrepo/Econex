@@ -212,6 +212,74 @@
 
 .pw-eye-btn:hover { color: var(--primary); }
 
+/* Password strength meter */
+.pw-strength {
+  margin-top: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pw-bars {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.pw-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 99px;
+  background: #e5e7eb;
+  transition: background 0.3s;
+}
+
+.pw-s1 { background: #ef4444; }
+.pw-s2 { background: #f97316; }
+.pw-s3 { background: #eab308; }
+.pw-s4 { background: #22c55e; }
+.pw-s5 { background: #16a34a; }
+
+.pw-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  min-width: 60px;
+  text-align: right;
+  color: #9ca3af;
+}
+
+.pw-label.pw-s1 { color: #ef4444; }
+.pw-label.pw-s2 { color: #f97316; }
+.pw-label.pw-s3 { color: #eab308; }
+.pw-label.pw-s4 { color: #22c55e; }
+.pw-label.pw-s5 { color: #16a34a; }
+
+.pw-rules {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.pw-rules li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  transition: color 0.2s;
+}
+
+.pw-rule-icon {
+  width: 12px;
+  text-align: center;
+  font-size: 0.72rem;
+}
+
+.pw-rule--ok { color: #16a34a; }
+.pw-rule--fail { color: #9ca3af; }
+
 
 .settings-success {
   background: #ecfdf5;
