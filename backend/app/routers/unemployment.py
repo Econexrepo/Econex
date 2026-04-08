@@ -200,7 +200,35 @@ async def get_short_run_education_effect(_: UserOut = Depends(get_current_user))
     return {
         "data": df[["label", "value", "p_value", "is_significant"]].to_dict(orient="records")
     }
-    
+
+@router.get("/charts/total-unemployment-longrun")
+async def get_total_unemployment_longrun(_: UserOut = Depends(get_current_user)):
+
+    path = RESULTS_DIR / "rsui_total_unemployment_long_run_effects.csv"
+
+    df = pd.read_csv(path)
+    df.columns = [str(c).strip() for c in df.columns]
+
+    df = df.rename(columns={
+        "tot_category_label": "label",
+        "long_run_effect": "value"
+    })
+
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+
+    df = df.dropna(subset=["label", "value"])
+
+    return {
+        "data": [
+            {
+                "label": df.iloc[0]["label"],
+                "value": float(df.iloc[0]["value"])
+            }
+        ]
+    }
+
+        
+        
 # ─────────────────────────────────────────────────────────
 # RSUI Trend (Line Chart)
 # ─────────────────────────────────────────────────────────
