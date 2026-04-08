@@ -470,7 +470,8 @@ export default function Dashboard() {
         "unemployment-age-longrun",
         "ardl-short-significance",
         "long-run-education-effect",
-        "short-run-education-effect"
+        "short-run-education-effect",
+        "total-unemployment-longrun"
 ]
 
 const chartResults = await Promise.all(
@@ -568,10 +569,10 @@ setCharts(chartData)
           </ChartCard>
         )}
 
-        {charts["unemployment-age-longrun"]?.length > 0 && (
+        {charts["long-run-education-effect"]?.length > 0 && (
           <ChartCard title="Long-run ARDL Effect by Education Level" height={360} className="chart-card--full">
             <Bar
-              data={longRunEducationEffectBarDataset(charts["unemployment-age-longrun"])}
+              data={longRunEducationEffectBarDataset(charts["long-run-education-effect"])}
               options={longRunEffectOpts}
             />
           </ChartCard>
@@ -585,6 +586,17 @@ setCharts(chartData)
             />
           </ChartCard>
         )}
+
+        {charts["total-unemployment-longrun"]?.length > 0 && (
+          <ChartCard title="Total Unemployment Long run impact" height={180} >
+            <Bar
+              data={longRunEffectBarDataset(charts["total-unemployment-longrun"])}
+              options={longRunEffectOpts}
+            />
+          </ChartCard>
+        )}
+
+          
       </div>
 
       {/* RSUI Trend */}
