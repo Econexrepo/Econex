@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,7 +11,10 @@ import {
   Filler,
 } from 'chart.js'
 import { Line, Bar } from 'react-chartjs-2'
+import { useQuery } from '@tanstack/react-query'
 import api from '../api/axios'
+import { useDashboardStats, useRSUITrend } from '../hooks/useSharedData'
+import { agricultureInsights } from '../data/insights'
 import './Dashboard.css'
 
 ChartJS.register(
@@ -540,118 +543,95 @@ function HeatmapCard({ title, data, height = 320 }) {
 }
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({})
-  const [charts, setCharts] = useState({})
-  const [rsui, setRsui] = useState([])
-  const [insights, setInsights] = useState([])
-  const [faoArea, setFaoArea] = useState([])
-  const [faoHeatmap, setFaoHeatmap] = useState([])
-  const [faoLatestTop, setFaoLatestTop] = useState([])
-  const [agriEffects, setAgriEffects] = useState([])
-  const [agriShortRun, setAgriShortRun] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [selectedAgriUnit, setSelectedAgriUnit] = useState('')
+  const [selectedShortRunUnit, setSelectedShortRunUnit] = useState('')
+
+  useDashboardStats()
+
+  const { data: rsuiData, isLoading: rsuiLoading } = useRSUITrend()
+  const rsui = rsuiData?.data || []
+
+  const { data: agriEffects = [], isLoading: agriEffectsLoading } = useQuery({
+    queryKey: ['agriculture', 'chart', 'agri-effect-only'],
+    queryFn: () => api.get('/api/agriculture/charts/agri-effect-only?horizon=long_run&top_n=50').then(res => res.data.data || []),
+  })
+
+  const { data: agriShortRun = [], isLoading: agriShortRunLoading } = useQuery({
+    queryKey: ['agriculture', 'chart', 'ardl-short-significance'],
+    queryFn: () => api.get('/api/agriculture/charts/ardl-short-significance').then(res => res.data.data || []),
+  })
+
+  const { data: faoLatestTop = [], isLoading: faoLatestTopLoading } = useQuery({
+    queryKey: ['agriculture', 'chart', 'fao-latest-top-items'],
+    queryFn: () => api.get('/api/agriculture/charts/fao-latest-top-items?top_n=5').then(res => res.data.data || []),
+  })
+
+  const { data: faoMultilineTrend, isLoading: faoMultilineLoading } = useQuery({
+    queryKey: ['agriculture', 'chart', 'fao-multiline-trend'],
+    queryFn: () => api.get('/api/agriculture/charts/fao-multiline-trend').then(res => res.data.data),
+  })
+
+  const { data: faoArea = [], isLoading: faoAreaLoading } = useQuery({
+    queryKey: ['agriculture', 'chart', 'fao-multiline-trend-top5'],
+    queryFn: () => api.get('/api/agriculture/charts/fao-multiline-trend?top_n=5').then(res => res.data.data || []),
+  })
+
+  const { data: faoHeatmap = [], isLoading: faoHeatmapLoading } = useQuery({
+    queryKey: ['agriculture', 'chart', 'fao-heatmap'],
+    queryFn: () => api.get('/api/agriculture/charts/fao-heatmap?top_n=5').then(res => res.data.data || []),
+  })
+
+  const loading = rsuiLoading || agriEffectsLoading || agriShortRunLoading || faoLatestTopLoading || faoMultilineLoading || faoAreaLoading || faoHeatmapLoading
+
+  const agriUnitTabs = useMemo(() => {
+    const units = agriEffects.map((row) => extractUnitFromLabel(row.label))
+    return [...new Set(units)]
+  }, [agriEffects])
+
+  const shortRunUnitTabs = useMemo(() => {
+    const units = agriShortRun.map((row) => extractUnitFromLabel(row.label))
+    return [...new Set(units)]
+  }, [agriShortRun])
 
   useEffect(() => {
-    const loadAgriEffects = async () => {
-      try {
-        const res = await api.get(
-          '/api/agriculture/charts/agri-effect-only?horizon=long_run&top_n=15'
-        )
-        setAgriEffects(res.data.data || [])
-      } catch (err) {
-        console.error('Agriculture effect chart API error', err)
-      }
+    if (!selectedAgriUnit && agriUnitTabs.length > 0) {
+      setSelectedAgriUnit(agriUnitTabs[0])
     }
-
-    loadAgriEffects()
-  }, [])
+  }, [agriUnitTabs, selectedAgriUnit])
 
   useEffect(() => {
-    const loadAgriShortRun = async () => {
-      try {
-        const res = await api.get('/api/agriculture/charts/ardl-short-significance')
-        setAgriShortRun(res.data.data || [])
-      } catch (err) {
-        console.error('Agriculture short-run chart API error', err)
-      }
+    if (!selectedShortRunUnit && shortRunUnitTabs.length > 0) {
+      setSelectedShortRunUnit(shortRunUnitTabs[0])
     }
+  }, [shortRunUnitTabs, selectedShortRunUnit])
 
-    loadAgriShortRun()
-  }, [])
+  const activeAgriUnit =
+    selectedAgriUnit && agriUnitTabs.includes(selectedAgriUnit)
+      ? selectedAgriUnit
+      : agriUnitTabs[0] || ''
 
-  useEffect(() => {
-    const loadFaoLatestTop = async () => {
-      try {
-        const res = await api.get('/api/agriculture/charts/fao-latest-top-items?top_n=5')
-        setFaoLatestTop(res.data.data || [])
-      } catch (err) {
-        console.error('FAO latest top items API error', err)
-      }
-    }
+  const activeShortRunUnit =
+    selectedShortRunUnit && shortRunUnitTabs.includes(selectedShortRunUnit)
+      ? selectedShortRunUnit
+      : shortRunUnitTabs[0] || ''
 
-    loadFaoLatestTop()
-  }, [])
+  const filteredAgriEffects = useMemo(() => {
+    return agriEffects
+      .filter((row) => extractUnitFromLabel(row.label) === activeAgriUnit)
+      .map((row) => ({
+        ...row,
+        label: removeUnitPrefix(row.label),
+      }))
+  }, [agriEffects, activeAgriUnit])
 
-  useEffect(() => {
-    const loadDashboard = async () => {
-      try {
-        const [statsRes, rsRes, insRes] = await Promise.all([
-          api.get('/api/dashboard/stats'),
-          api.get('/api/dashboard/rsui-trend'),
-          api.get('/api/dashboard/insights'),
-        ])
-
-        setStats(statsRes.data)
-        setRsui(rsRes.data.data)
-        setInsights(insRes.data.insights)
-
-        const chartNames = ['fao-multiline-trend']
-
-        const chartResults = await Promise.all(
-          chartNames.map((c) => api.get(`/api/agriculture/charts/${c}`))
-        )
-
-        const chartData = {}
-        chartNames.forEach((name, i) => {
-          chartData[name] = chartResults[i].data.data
-        })
-
-        setCharts(chartData)
-        setLoading(false)
-      } catch (err) {
-        console.error('Dashboard API error', err)
-        setLoading(false)
-      }
-    }
-
-    loadDashboard()
-  }, [])
-
-  useEffect(() => {
-    const loadFaoArea = async () => {
-      try {
-        const res = await api.get('/api/agriculture/charts/fao-multiline-trend?top_n=5')
-        setFaoArea(res.data.data || [])
-      } catch (err) {
-        console.error('FAO stacked area API error', err)
-      }
-    }
-
-    loadFaoArea()
-  }, [])
-
-  useEffect(() => {
-    const loadFaoHeatmap = async () => {
-      try {
-        const res = await api.get('/api/agriculture/charts/fao-heatmap?top_n=5')
-        setFaoHeatmap(res.data.data || [])
-      } catch (err) {
-        console.error('FAO heatmap API error', err)
-      }
-    }
-
-    loadFaoHeatmap()
-  }, [])
+  const filteredAgriShortRun = useMemo(() => {
+    return agriShortRun
+      .filter((row) => extractUnitFromLabel(row.label) === activeShortRunUnit)
+      .map((row) => ({
+        ...row,
+        label: removeUnitPrefix(row.label),
+      }))
+  }, [agriShortRun, activeShortRunUnit])
 
   if (loading) {
     return <div className="dashboard">Loading dashboard...</div>
@@ -673,11 +653,11 @@ export default function Dashboard() {
   return (
     <div className="dashboard">
       <div className="charts-grid">
-        {Array.isArray(charts['fao-multiline-trend']) &&
-          charts['fao-multiline-trend'].length > 0 && (
+        {Array.isArray(faoMultilineTrend) &&
+          faoMultilineTrend.length > 0 && (
             <ChartCard title="Top 5 Agricultural Items Trend Over Time" height={420}>
               <Line
-                data={multiLineDataset(charts['fao-multiline-trend'])}
+                data={multiLineDataset(faoMultilineTrend)}
                 options={multiLineOpts}
               />
             </ChartCard>
@@ -736,7 +716,7 @@ export default function Dashboard() {
       </div>
 
       <div className="insights-section">
-        {insights.map((ins) => (
+        {agricultureInsights.map((ins) => (
           <div key={ins.id} className={`insight-card insight-${ins.type}`}>
             <span>{ins.icon}</span>
             <strong>{ins.title}</strong>

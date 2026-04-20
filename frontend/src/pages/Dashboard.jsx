@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -14,6 +13,9 @@ import { Bar, Line, Doughnut } from 'react-chartjs-2'
 import { Chart } from "react-chartjs-2"
 import { MatrixController, MatrixElement } from "chartjs-chart-matrix";
 import { ArcElement } from 'chart.js'
+import { useQueries } from '@tanstack/react-query'
+import { useDashboardStats, useRSUITrend } from '../hooks/useSharedData'
+import { dashboardInsights } from '../data/insights'
 import api from '../api/axios'
 import './Dashboard.css'
 
@@ -429,59 +431,28 @@ function ChartCard({ title, children, height = 220 }) {
 // ─────────────────────────────────────────────────────────
 // Main Dashboard
 // ─────────────────────────────────────────────────────────
+const chartNames = ['pce', 'pce-growth-value', 'pce-growth-rate', 'pce-share', 'pce-volatility', 'ardl-impact', 'ardl-short-significance']
+
 export default function Dashboard() {
-  const [stats, setStats] = useState({})
-  const [charts, setCharts] = useState({})
-  const [rsui, setRsui] = useState([])
-  const [insights, setInsights] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { data: stats = {}, isLoading: statsLoading } = useDashboardStats()
+  const { data: rsuiData, isLoading: rsuiLoading } = useRSUITrend()
+  const rsui = rsuiData?.data || []
 
-  useEffect(() => {
-    const loadDashboard = async () => {
-      try {
-        const [statsRes, rsRes, insRes] = await Promise.all([
-          api.get('/api/dashboard/stats'),
-          api.get('/api/dashboard/rsui-trend'),
-          api.get('/api/dashboard/insights'),
-        ])
+  const chartQueries = useQueries({
+    queries: chartNames.map(name => ({
+      queryKey: ['dashboard', 'chart', name],
+      queryFn: () => api.get(`/api/dashboard/charts/${name}`).then(res => res.data.data),
+    })),
+  })
 
-        setStats(statsRes.data)
-        setRsui(rsRes.data.data)
-        setInsights(insRes.data.insights)
+  const chartsLoading = chartQueries.some(q => q.isLoading)
 
-        const chartNames = [
-  'pce',
-  "pce-growth-value",
-  "pce-growth-rate",
-  "pce-share",
-  "pce-volatility",
-  "ardl-impact",
-  "ardl-short-significance"
-]
+  const charts = {}
+  chartNames.forEach((name, i) => {
+    charts[name] = chartQueries[i].data || null
+  })
 
-const chartResults = await Promise.all(
-  chartNames.map((c) =>
-    api.get(`/api/dashboard/charts/${c}`)
-  )
-)
-
-const chartData = {}
-
-chartNames.forEach((name, i) => {
-  chartData[name] = chartResults[i].data.data
-})
-
-setCharts(chartData)
-
-        setLoading(false)
-      } catch (err) {
-        console.error('Dashboard API error', err)
-        setLoading(false)
-      }
-    }
-
-    loadDashboard()
-  }, [])
+  const loading = statsLoading || rsuiLoading || chartsLoading
 
   if (loading) {
     return <div className="dashboard">Loading dashboard...</div>
@@ -671,7 +642,7 @@ setCharts(chartData)
 
       {/* Insights */}
       <div className="insights-section">
-        {insights.map((ins) => (
+        {dashboardInsights.map((ins) => (
           <div key={ins.id} className={`insight-card insight-${ins.type}`}>
             <span>{ins.icon}</span>
             <strong>{ins.title}</strong>

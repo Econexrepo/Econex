@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,7 +10,10 @@ import {
   Filler,
 } from 'chart.js'
 import { Line, Bar } from 'react-chartjs-2'
+import { useQueries } from '@tanstack/react-query'
 import api from '../api/axios'
+import { useDashboardStats, useRSUITrend } from '../hooks/useSharedData'
+import { wagesInsights } from '../data/insights'
 import './Dashboard.css'
 
 ChartJS.register(
@@ -344,53 +346,29 @@ function gdpSectorTrendDataset(data = []) {
 // Main Dashboard
 // ─────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [charts, setCharts] = useState({})
-  const [rsui, setRsui] = useState([])
-  const [insights, setInsights] = useState([])
-  const [loading, setLoading] = useState(true)
+  // Warm the cache for other pages, but don't use the result
+  useDashboardStats()
 
-  useEffect(() => {
-    const loadDashboard = async () => {
-      try {
-        const [statsRes, rsRes, insRes] = await Promise.all([
-          api.get('/api/dashboard/stats'),
-          api.get('/api/dashboard/rsui-trend'),
-          api.get('/api/dashboard/insights'),
-        ])
+  const { data: rsuiData, isLoading: rsuiLoading } = useRSUITrend()
+  const rsui = rsuiData?.data || []
 
-        setRsui(rsRes.data.data || [])
-        setInsights(insRes.data.insights || [])
+  const chartNames = ['wage-real-trend', 'wage-longrun-effect', 'wage-shortrun-effect']
 
-        const chartNames = [
-          'gdp-sector-trend'
-        ]
+  const chartQueries = useQueries({
+    queries: chartNames.map(name => ({
+      queryKey: ['wages', 'chart', name],
+      queryFn: () => api.get(`/api/wages/charts/${name}`).then(res => res.data?.data || []),
+    })),
+  })
 
-        const chartResults = await Promise.allSettled(
-          chartNames.map((c) => api.get(`/api/gdp/charts/${c}`))
-        )
+  const chartsLoading = chartQueries.some(q => q.isLoading)
 
-        const chartData = {}
+  const charts = {}
+  chartNames.forEach((name, i) => {
+    charts[name] = chartQueries[i].data || []
+  })
 
-        chartNames.forEach((name, i) => {
-          const result = chartResults[i]
-          if (result.status === 'fulfilled') {
-            chartData[name] = result.value.data?.data || []
-          } else {
-            console.error(`Failed to load chart: ${name}`, result.reason)
-            chartData[name] = []
-          }
-        })
-
-        setCharts(chartData)
-      } catch (err) {
-        console.error('Dashboard API error', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadDashboard()
-  }, [])
+  const loading = rsuiLoading || chartsLoading
 
   if (loading) {
     return <div className="dashboard">Loading dashboard...</div>
@@ -460,8 +438,8 @@ export default function Dashboard() {
       </div>
 
       <div className="insights-section">
-        {Array.isArray(insights) &&
-          insights.map((ins) => (
+        {Array.isArray(wagesInsights) &&
+          wagesInsights.map((ins) => (
             <div key={ins.id} className={`insight-card insight-${ins.type}`}>
               <span>{ins.icon}</span>
               <strong>{ins.title}</strong>

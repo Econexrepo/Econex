@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,7 +10,10 @@ import {
   Filler,
 } from 'chart.js'
 import { Bar, Line } from 'react-chartjs-2'
+import { useQueries } from '@tanstack/react-query'
 import api from '../api/axios'
+import { useDashboardStats, useRSUITrend } from '../hooks/useSharedData'
+import { expenditureInsights } from '../data/insights'
 import './Dashboard.css'
 
 ChartJS.register(
@@ -315,58 +317,27 @@ function ChartCard({ title, children, height = 220 }) {
 // Main page
 // ─────────────────────────────────────────────────────────
 export default function Expenditure() {
-  const [charts, setCharts] = useState({})
-  const [rsui, setRsui] = useState([])
-  const [insights, setInsights] = useState([])
-  const [loading, setLoading] = useState(true)
+  useDashboardStats() // warm cache for other pages
+  const { data: rsuiData, isLoading: rsuiLoading } = useRSUITrend()
+  const rsui = rsuiData?.data || []
 
-  useEffect(() => {
-    const loadDashboard = async () => {
-      try {
-        const [, rsRes, insRes] = await Promise.all([
-          api.get('/api/dashboard/stats'),
-          api.get('/api/dashboard/rsui-trend'),
-          api.get('/api/dashboard/insights'),
-        ])
+  const chartNames = ['expenditure-type-trend', 'total-expenditure-trend', 'type-longrun-effect', 'type-shortrun-effect', 'total-longrun-effect', 'total-shortrun-effect',]
 
-        setRsui(rsRes.data?.data || [])
-        setInsights(insRes.data?.insights || [])
+  const chartQueries = useQueries({
+    queries: chartNames.map(name => ({
+      queryKey: ['expenditure', 'chart', name],
+      queryFn: () => api.get(`/api/government-expenditure/charts/${name}`).then(res => res.data?.data || []),
+    })),
+  })
 
-        const chartNames = [
-          'expenditure-type-trend',
-          'total-expenditure-trend',
-          'type-longrun-effect',
-          'type-shortrun-effect',
-          'total-longrun-effect',
-          'total-shortrun-effect',
-        ]
+  const chartsLoading = chartQueries.some(q => q.isLoading)
 
-        const chartResults = await Promise.allSettled(
-          chartNames.map((c) => api.get(`/api/government-expenditure/charts/${c}`))
-        )
+  const charts = {}
+  chartNames.forEach((name, i) => {
+    charts[name] = chartQueries[i].data || []
+  })
 
-        const chartData = {}
-
-        chartNames.forEach((name, i) => {
-          const result = chartResults[i]
-          if (result.status === 'fulfilled') {
-            chartData[name] = result.value.data?.data || []
-          } else {
-            console.error(`Failed to load chart: ${name}`, result.reason)
-            chartData[name] = []
-          }
-        })
-
-        setCharts(chartData)
-      } catch (err) {
-        console.error('Government Expenditure API error', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadDashboard()
-  }, [])
+  const loading = rsuiLoading || chartsLoading
 
   if (loading) {
     return <div className="dashboard">Loading government expenditure dashboard...</div>
@@ -457,8 +428,8 @@ export default function Expenditure() {
       </div>
 
       <div className="insights-section">
-        {Array.isArray(insights) &&
-          insights.map((ins) => (
+        {Array.isArray(expenditureInsights) &&
+          expenditureInsights.map((ins) => (
             <div key={ins.id} className={`insight-card insight-${ins.type}`}>
               <span>{ins.icon}</span>
               <strong>{ins.title}</strong>
