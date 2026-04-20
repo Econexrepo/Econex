@@ -33,13 +33,14 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      // Clear stored session
+    const url = error.config?.url || ""
+    const isAuthRequest = url.includes("/auth/login") || url.includes("/auth/register")
+
+    if (error.response?.status === 401 && !isAuthRequest) {
+      // Expired/invalid session — clear tokens and redirect
       localStorage.removeItem("econex_token")
       localStorage.removeItem("econex_user")
       sessionStorage.removeItem("econex_token")
-
-      // Redirect to login
       window.location.replace("/login")
     }
 
