@@ -37,6 +37,22 @@ EOF
 docker compose build --no-cache
 docker compose up -d --force-recreate
 
-# Verify
+# Wait for backend to initialize
+echo "Waiting 15s for backend to start..."
+sleep 15
+
+# Show container status
+echo "=== Container Status ==="
 docker compose ps
+
+# Show backend logs so CI can diagnose crashes
+echo "=== Backend Logs ==="
+docker compose logs --tail=80 backend
+
+# Fail the deploy if backend isn't running
+if ! docker compose ps backend | grep -q "Up"; then
+    echo "ERROR: Backend container is not running!"
+    exit 1
+fi
+
 echo "Deployment complete"
