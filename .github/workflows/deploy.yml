@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - Dasuni-Premasinghe
 
 jobs:
   deploy:
