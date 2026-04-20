@@ -389,9 +389,12 @@ async def _preload_all_caches():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Preloading data cache...")
-    await _preload_all_caches()
-    logger.info("Cache preloaded. Server ready.")
+    try:
+        logger.info("Preloading data cache...")
+        await _preload_all_caches()
+        logger.info("Cache preloaded. Server ready.")
+    except Exception as e:
+        logger.error(f"Cache preload failed: {e}. Starting with cold cache.")
     yield
 
 

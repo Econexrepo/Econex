@@ -73,5 +73,9 @@ jobs:
       - name: Health check
         run: |
           sleep 30
-          curl -sf http://34.21.192.28/api/health && echo "Backend OK"
-          curl -sf http://34.21.192.28/ && echo "Frontend OK"
+          echo "Checking backend health..."
+          curl -sf http://34.21.192.28/api/health || { echo "FAIL: Backend /api/health unreachable"; exit 1; }
+          echo "Backend OK"
+          echo "Checking frontend..."
+          curl -sf http://34.21.192.28/ > /dev/null || { echo "FAIL: Frontend unreachable"; exit 1; }
+          echo "Frontend OK"
