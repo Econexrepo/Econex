@@ -11,6 +11,7 @@ from pathlib import Path
 from app.routers.auth import get_current_user
 from app.models.schemas import UserOut
 from app.db import get_warehouse_db
+from app.cache import cached_endpoint
 
 RESULTS_DIR = Path("results")
 
@@ -18,6 +19,7 @@ router = APIRouter()
 
 
 @router.get("/charts/wage-real-trend")
+@cached_endpoint
 async def get_wage_real_trend(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db)
@@ -48,6 +50,7 @@ async def get_wage_real_trend(
 
 
 @router.get("/charts/wage-nominal-trend")
+@cached_endpoint
 async def get_wage_nominal_trend(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db)
@@ -77,6 +80,7 @@ async def get_wage_nominal_trend(
     }
 
 @router.get("/charts/wage-longrun-effect")
+@cached_endpoint
 async def get_wage_longrun_effect(_: UserOut = Depends(get_current_user)):
     path = RESULTS_DIR / "rsui_wage_long_run_effects.csv"
 
@@ -122,6 +126,7 @@ async def get_wage_longrun_effect(_: UserOut = Depends(get_current_user)):
 }
 
 @router.get("/charts/wage-shortrun-effect")
+@cached_endpoint
 async def get_wage_shortrun_effect(_: UserOut = Depends(get_current_user)):
     path = RESULTS_DIR / "rsui_wage_short_run_effects.csv"
 
@@ -167,6 +172,7 @@ async def get_wage_shortrun_effect(_: UserOut = Depends(get_current_user)):
 }
 
 @router.get("/charts/short-run-education-effect")
+@cached_endpoint
 async def get_short_run_education_effect(_: UserOut = Depends(get_current_user)):
     path = RESULTS_DIR / "rsui_short_run_unemployment_education.csv"
 
@@ -215,6 +221,7 @@ async def get_short_run_education_effect(_: UserOut = Depends(get_current_user))
 # RSUI Trend (Line Chart)
 # ─────────────────────────────────────────────────────────
 @router.get("/rsui-trend")
+@cached_endpoint
 async def get_rsui_trend(
     range: str = "all",
     _: UserOut = Depends(get_current_user),
@@ -249,6 +256,7 @@ async def get_rsui_trend(
 
 
 @router.get("/charts/unemployment-age-longrun")
+@cached_endpoint
 async def get_unemployment_age_longrun(_: UserOut = Depends(get_current_user)):
     """
     Returns only long-run ARDL effects for unemployment-by-age vs RSUI.
@@ -307,6 +315,7 @@ async def get_unemployment_age_longrun(_: UserOut = Depends(get_current_user)):
 
 
 @router.get("/charts/ardl-short-significance")
+@cached_endpoint
 async def get_ardl_short_significance(_: UserOut = Depends(get_current_user)):
 
     
@@ -349,6 +358,7 @@ async def get_ardl_short_significance(_: UserOut = Depends(get_current_user)):
 # Insights
 # ─────────────────────────────────────────────────────────
 @router.get("/insights")
+@cached_endpoint
 async def get_insights(_: UserOut = Depends(get_current_user)):
 
     return {

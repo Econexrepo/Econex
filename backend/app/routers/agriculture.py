@@ -12,12 +12,14 @@ from app.routers.auth import get_current_user
 from app.models.schemas import UserOut
 from app.db import get_warehouse_db
 import math
+from app.cache import cached_endpoint
 
 RESULTS_DIR = Path("results")
 
 router = APIRouter()
 
 @router.get("/charts/fao-multiline-trend")
+@cached_endpoint
 async def get_fao_multiline_trend(
     top_n: int = Query(5, ge=1, le=20),
     _: UserOut = Depends(get_current_user),
@@ -87,6 +89,7 @@ async def get_fao_multiline_trend(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/charts/fao-heatmap")
+@cached_endpoint
 async def get_fao_heatmap(
     top_n: int = Query(5, ge=3, le=30),
     _: UserOut = Depends(get_current_user),
@@ -156,6 +159,7 @@ async def get_fao_heatmap(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/charts/fao-latest-top-items")
+@cached_endpoint
 async def get_fao_latest_top_items(
     top_n: int = Query(5, ge=1, le=20),
     _: UserOut = Depends(get_current_user),
@@ -210,6 +214,7 @@ async def get_fao_latest_top_items(
 
 
 @router.get("/charts/agri-effect-only")
+@cached_endpoint
 async def get_agri_effect_only(
     horizon: str = Query("long_run"),
     top_n: int = Query(15, ge=5, le=50),
@@ -248,7 +253,12 @@ async def get_agri_effect_only(
 
 
 @router.get("/charts/ardl-short-significance")
-async def get_ardl_short_significance(_: UserOut = Depends(get_current_user)):
+@cached_endpoint
+async def get_ardl_short_significance(
+    top_n: int = Query(15, ge=5, le=50),
+    _: UserOut = Depends(get_current_user),
+):
+    path = RESULTS_DIR / "Agriproduction_relationship_table.csv"
 
     
     short_path = RESULTS_DIR / "rsui_unemployment_by_age_short_run_results.csv"
@@ -290,6 +300,7 @@ async def get_ardl_short_significance(_: UserOut = Depends(get_current_user)):
 # Insights
 # ─────────────────────────────────────────────────────────
 @router.get("/insights")
+@cached_endpoint
 async def get_insights(_: UserOut = Depends(get_current_user)):
 
     return {

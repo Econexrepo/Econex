@@ -11,6 +11,7 @@ from pathlib import Path
 from app.routers.auth import get_current_user
 from app.models.schemas import UserOut
 from app.db import get_warehouse_db
+from app.cache import cached_endpoint
 
 RESULTS_DIR = Path("results")
 
@@ -21,6 +22,7 @@ router = APIRouter()
 # Dashboard Stats
 # ─────────────────────────────────────────────────────────
 @router.get("/stats")
+@cached_endpoint
 async def get_stats(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db)
@@ -55,6 +57,7 @@ async def get_stats(
 # RSUI Trend (Line Chart)
 # ─────────────────────────────────────────────────────────
 @router.get("/rsui-trend")
+@cached_endpoint
 async def get_rsui_trend(
     range: str = "all",
     _: UserOut = Depends(get_current_user),
@@ -89,6 +92,7 @@ async def get_rsui_trend(
 # PCE Chart
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/pce")
+@cached_endpoint
 async def get_pce_chart(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db)
@@ -114,6 +118,7 @@ async def get_pce_chart(
 # PCE Growth Value Trend
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/pce-growth-value")
+@cached_endpoint
 async def get_pce_growth_value(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db)
@@ -142,6 +147,7 @@ async def get_pce_growth_value(
 # PCE Growth Rate Trend
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/pce-growth-rate")
+@cached_endpoint
 async def get_pce_growth_rate(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db)
@@ -169,6 +175,7 @@ async def get_pce_growth_rate(
 # PCE Category Share (Donut)
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/pce-share")
+@cached_endpoint
 async def get_pce_share(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db)
@@ -194,6 +201,7 @@ async def get_pce_share(
 # PCE Volatility (Std Dev of Growth Rate)
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/pce-volatility")
+@cached_endpoint
 async def get_pce_volatility(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db)
@@ -221,6 +229,7 @@ async def get_pce_volatility(
 # ARDL Model Impact (Short + Long Run)
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/ardl-impact")
+@cached_endpoint
 async def get_ardl_impact(_: UserOut = Depends(get_current_user)):
 
     short_path = RESULTS_DIR / "short_run_pce.csv"
@@ -254,6 +263,7 @@ async def get_ardl_impact(_: UserOut = Depends(get_current_user)):
 # ARDL Short-run Coefficient + Significance
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/ardl-short-significance")
+@cached_endpoint
 async def get_ardl_short_significance(_: UserOut = Depends(get_current_user)):
 
     short_path = RESULTS_DIR / "short_run_pce.csv"
@@ -297,6 +307,7 @@ async def get_ardl_short_significance(_: UserOut = Depends(get_current_user)):
 # Insights
 # ─────────────────────────────────────────────────────────
 @router.get("/insights")
+@cached_endpoint
 async def get_insights(_: UserOut = Depends(get_current_user)):
 
     return {

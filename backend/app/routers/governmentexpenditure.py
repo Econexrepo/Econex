@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.db import get_warehouse_db
 from app.models.schemas import UserOut
 from app.routers.auth import get_current_user
+from app.cache import cached_endpoint
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 RESULTS_DIR = BASE_DIR / "results"
@@ -25,6 +26,7 @@ router = APIRouter()
 # year_id, exp_type_key, expenditure_rs_mn, exp_type_label
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/expenditure-type-trend")
+@cached_endpoint
 async def get_expenditure_type_trend(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db),
@@ -58,6 +60,7 @@ async def get_expenditure_type_trend(
 # year_id, tot_exp_key, total_expenditure_rs_mn, category_label
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/total-expenditure-trend")
+@cached_endpoint
 async def get_total_expenditure_trend(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db),
@@ -89,6 +92,7 @@ async def get_total_expenditure_trend(
 # exp_type_label,n_obs,long_run_effect,aic,bic
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/type-longrun-effect")
+@cached_endpoint
 async def get_type_longrun_effect(_: UserOut = Depends(get_current_user)):
     path = RESULTS_DIR / "rsui_long_run_gov_exp_by_type.csv"
 
@@ -137,6 +141,7 @@ async def get_type_longrun_effect(_: UserOut = Depends(get_current_user)):
 # exp_type_label,n_obs,status,rsui_adf_p,x_adf_p,aic,bic,coef,pvalue
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/type-shortrun-effect")
+@cached_endpoint
 async def get_type_shortrun_effect(_: UserOut = Depends(get_current_user)):
     path = RESULTS_DIR / "rsui_short_run_gov_exp_by_type.csv"
 
@@ -279,6 +284,7 @@ async def get_total_shortrun_effect(_: UserOut = Depends(get_current_user)):
 # Insights
 # ─────────────────────────────────────────────────────────
 @router.get("/insights")
+@cached_endpoint
 async def get_insights(_: UserOut = Depends(get_current_user)):
     return {
         "insights": [

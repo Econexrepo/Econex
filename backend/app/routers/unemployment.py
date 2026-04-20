@@ -11,6 +11,7 @@ from pathlib import Path
 from app.routers.auth import get_current_user
 from app.models.schemas import UserOut
 from app.db import get_warehouse_db
+from app.cache import cached_endpoint
 
 RESULTS_DIR = Path("results")
 
@@ -21,6 +22,7 @@ router = APIRouter()
 # Unemployment by Age Group Trend (Multi-line)
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/unemployment-age-trend")
+@cached_endpoint
 async def get_unemployment_age_trend(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db)
@@ -52,6 +54,7 @@ async def get_unemployment_age_trend(
 # Unemployment by Education Trend (Multi-line)
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/unemployment-education-trend")
+@cached_endpoint
 async def education(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db)
@@ -82,6 +85,7 @@ async def education(
 # Total Unemployment Trend (Line Chart)
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/total-unemployment-trend")
+@cached_endpoint
 async def get_total_unemployment_trend(
     _: UserOut = Depends(get_current_user),
     db: Session = Depends(get_warehouse_db)
@@ -107,6 +111,7 @@ async def get_total_unemployment_trend(
     }
 
 @router.get("/charts/long-run-education-effect")
+@cached_endpoint
 async def get_long_run_education_effect(_: UserOut = Depends(get_current_user)):
     path = RESULTS_DIR / "rsui_long_run_unemployment_education.csv"
 
@@ -157,6 +162,7 @@ async def get_long_run_education_effect(_: UserOut = Depends(get_current_user)):
 }
 
 @router.get("/charts/short-run-education-effect")
+@cached_endpoint
 async def get_short_run_education_effect(_: UserOut = Depends(get_current_user)):
     path = RESULTS_DIR / "rsui_short_run_unemployment_education.csv"
 
@@ -200,11 +206,41 @@ async def get_short_run_education_effect(_: UserOut = Depends(get_current_user))
     return {
         "data": df[["label", "value", "p_value", "is_significant"]].to_dict(orient="records")
     }
-    
+
+@router.get("/charts/total-unemployment-longrun")
+@cached_endpoint
+async def get_total_unemployment_longrun(_: UserOut = Depends(get_current_user)):
+
+    path = RESULTS_DIR / "rsui_total_unemployment_long_run_effects.csv"
+
+    df = pd.read_csv(path)
+    df.columns = [str(c).strip() for c in df.columns]
+
+    df = df.rename(columns={
+        "tot_category_label": "label",
+        "long_run_effect": "value"
+    })
+
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+
+    df = df.dropna(subset=["label", "value"])
+
+    return {
+        "data": [
+            {
+                "label": df.iloc[0]["label"],
+                "value": float(df.iloc[0]["value"])
+            }
+        ]
+    }
+
+        
+        
 # ─────────────────────────────────────────────────────────
 # RSUI Trend (Line Chart)
 # ─────────────────────────────────────────────────────────
 @router.get("/rsui-trend")
+@cached_endpoint
 async def get_rsui_trend(
     range: str = "all",
     _: UserOut = Depends(get_current_user),
@@ -239,6 +275,7 @@ async def get_rsui_trend(
 
 
 @router.get("/charts/unemployment-age-longrun")
+@cached_endpoint
 async def get_unemployment_age_longrun(_: UserOut = Depends(get_current_user)):
     """
     Returns only long-run ARDL effects for unemployment-by-age vs RSUI.
@@ -297,6 +334,7 @@ async def get_unemployment_age_longrun(_: UserOut = Depends(get_current_user)):
 
 
 @router.get("/charts/ardl-short-significance")
+@cached_endpoint
 async def get_ardl_short_significance(_: UserOut = Depends(get_current_user)):
 
     
@@ -339,6 +377,7 @@ async def get_ardl_short_significance(_: UserOut = Depends(get_current_user)):
 # Insights
 # ─────────────────────────────────────────────────────────
 @router.get("/insights")
+@cached_endpoint
 async def get_insights(_: UserOut = Depends(get_current_user)):
 
     return {

@@ -4,6 +4,7 @@ Econex Backend – FastAPI Entry Point
 
 import logging
 import pathlib
+from contextlib import asynccontextmanager
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -11,7 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app.routers import auth, dashboard, chat, settings, unemployment, wages, gdp, governmentexpenditure, agriculture
+from app.routers import auth, dashboard, chat, settings, unemployment, wages, gdp, governmentexpenditure, agriculture, graphs
+from app.cache import get_cache
 from dotenv import load_dotenv
 
 
@@ -99,11 +101,306 @@ def _ensure_ardl_ready() -> None:
         )
 
 
+# ── Cache Preload ──────────────────────────────────────────────────────────────
+async def _preload_all_caches():
+    """Call every cacheable endpoint once to warm the cache.
+    Failures are logged but non-fatal — cold cache is acceptable."""
+    from app.db import WarehouseSessionLocal
+
+    db = WarehouseSessionLocal()
+    errors = 0
+    try:
+        # --- Dashboard (10 endpoints) ---
+        for fn, kwargs in [
+            (dashboard.get_stats, {}),
+            (dashboard.get_rsui_trend, {"range": "all"}),
+            (dashboard.get_pce_chart, {}),
+            (dashboard.get_pce_growth_value, {}),
+            (dashboard.get_pce_growth_rate, {}),
+            (dashboard.get_pce_share, {}),
+            (dashboard.get_pce_volatility, {}),
+            (dashboard.get_ardl_impact, {}),
+            (dashboard.get_ardl_short_significance, {}),
+            (dashboard.get_insights, {}),
+        ]:
+            try:
+                if "db" in fn.__wrapped__.__code__.co_varnames:
+                    await fn(db=db, _=None, **kwargs)
+                else:
+                    await fn(_=None, **kwargs)
+            except Exception as e:
+                logger.warning(f"Preload failed for {fn.__name__}: {e}")
+                errors += 1
+
+        # --- GDP (7 endpoints) ---
+        for fn, kwargs in [
+            (gdp.get_gdp_sector_trend, {}),
+            (gdp.get_gdp_shortrun_effect, {}),
+            (gdp.get_gdp_longrun_effect, {}),
+            (gdp.get_rsui_trend, {"range": "all"}),
+            (gdp.get_unemployment_age_longrun, {}),
+            (gdp.get_ardl_short_significance, {}),
+            (gdp.get_insights, {}),
+        ]:
+            try:
+                if "db" in fn.__wrapped__.__code__.co_varnames:
+                    await fn(db=db, _=None, **kwargs)
+                else:
+                    await fn(_=None, **kwargs)
+            except Exception as e:
+                logger.warning(f"Preload failed for {fn.__name__}: {e}")
+                errors += 1
+
+        # --- Wages (9 endpoints) ---
+        for fn, kwargs in [
+            (wages.get_wage_real_trend, {}),
+            (wages.get_wage_nominal_trend, {}),
+            (wages.get_wage_longrun_effect, {}),
+            (wages.get_wage_shortrun_effect, {}),
+            (wages.get_short_run_education_effect, {}),
+            (wages.get_rsui_trend, {"range": "all"}),
+            (wages.get_unemployment_age_longrun, {}),
+            (wages.get_ardl_short_significance, {}),
+            (wages.get_insights, {}),
+        ]:
+            try:
+                if "db" in fn.__wrapped__.__code__.co_varnames:
+                    await fn(db=db, _=None, **kwargs)
+                else:
+                    await fn(_=None, **kwargs)
+            except Exception as e:
+                logger.warning(f"Preload failed for {fn.__name__}: {e}")
+                errors += 1
+
+        # --- Unemployment (10 endpoints) ---
+        for fn, kwargs in [
+            (unemployment.get_unemployment_age_trend, {}),
+            (unemployment.education, {}),
+            (unemployment.get_total_unemployment_trend, {}),
+            (unemployment.get_long_run_education_effect, {}),
+            (unemployment.get_short_run_education_effect, {}),
+            (unemployment.get_total_unemployment_longrun, {}),
+            (unemployment.get_rsui_trend, {"range": "all"}),
+            (unemployment.get_unemployment_age_longrun, {}),
+            (unemployment.get_ardl_short_significance, {}),
+            (unemployment.get_insights, {}),
+        ]:
+            try:
+                if "db" in fn.__wrapped__.__code__.co_varnames:
+                    await fn(db=db, _=None, **kwargs)
+                else:
+                    await fn(_=None, **kwargs)
+            except Exception as e:
+                logger.warning(f"Preload failed for {fn.__name__}: {e}")
+                errors += 1
+
+        # --- Government Expenditure (5 endpoints) ---
+        for fn, kwargs in [
+            (governmentexpenditure.get_expenditure_type_trend, {}),
+            (governmentexpenditure.get_total_expenditure_trend, {}),
+            (governmentexpenditure.get_type_longrun_effect, {}),
+            (governmentexpenditure.get_type_shortrun_effect, {}),
+            (governmentexpenditure.get_insights, {}),
+        ]:
+            try:
+                if "db" in fn.__wrapped__.__code__.co_varnames:
+                    await fn(db=db, _=None, **kwargs)
+                else:
+                    await fn(_=None, **kwargs)
+            except Exception as e:
+                logger.warning(f"Preload failed for {fn.__name__}: {e}")
+                errors += 1
+
+        # --- Agriculture (6 endpoints) ---
+        for fn, kwargs in [
+            (agriculture.get_fao_multiline_trend, {"top_n": 5}),
+            (agriculture.get_fao_heatmap, {"top_n": 5}),
+            (agriculture.get_fao_latest_top_items, {"top_n": 5}),
+            (agriculture.get_agri_effect_only, {"horizon": "long_run", "top_n": 15}),
+            (agriculture.get_ardl_short_significance, {"top_n": 15}),
+            (agriculture.get_insights, {}),
+        ]:
+            try:
+                if "db" in fn.__wrapped__.__code__.co_varnames:
+                    await fn(db=db, _=None, **kwargs)
+                else:
+                    await fn(_=None, **kwargs)
+            except Exception as e:
+                logger.warning(f"Preload failed for {fn.__name__}: {e}")
+                errors += 1
+
+        # --- Graphs router: SKIP preload ---
+        # graphs.py endpoints accept dynamic user params.
+        # They get cached on first call per unique parameter combination.
+
+        logger.info(f"Cache warmed: {len(get_cache())} entries, {errors} failures")
+    except Exception as e:
+        logger.error(f"Preload aborted: {e}. Server starts with cold cache.")
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Preloading data cache...")
+    await _preload_all_caches()
+    logger.info("Cache preloaded. Server ready.")
+    yield
+
+
+# ── Cache Preload ──────────────────────────────────────────────────────────────
+async def _preload_all_caches():
+    """Call every cacheable endpoint once to warm the cache.
+    Failures are logged but non-fatal — cold cache is acceptable."""
+    from app.db import WarehouseSessionLocal
+
+    db = WarehouseSessionLocal()
+    errors = 0
+    try:
+        # --- Dashboard (10 endpoints) ---
+        for fn, kwargs in [
+            (dashboard.get_stats, {}),
+            (dashboard.get_rsui_trend, {"range": "all"}),
+            (dashboard.get_pce_chart, {}),
+            (dashboard.get_pce_growth_value, {}),
+            (dashboard.get_pce_growth_rate, {}),
+            (dashboard.get_pce_share, {}),
+            (dashboard.get_pce_volatility, {}),
+            (dashboard.get_ardl_impact, {}),
+            (dashboard.get_ardl_short_significance, {}),
+            (dashboard.get_insights, {}),
+        ]:
+            try:
+                if "db" in fn.__wrapped__.__code__.co_varnames:
+                    await fn(db=db, _=None, **kwargs)
+                else:
+                    await fn(_=None, **kwargs)
+            except Exception as e:
+                logger.warning(f"Preload failed for {fn.__name__}: {e}")
+                errors += 1
+
+        # --- GDP (7 endpoints) ---
+        for fn, kwargs in [
+            (gdp.get_gdp_sector_trend, {}),
+            (gdp.get_gdp_shortrun_effect, {}),
+            (gdp.get_gdp_longrun_effect, {}),
+            (gdp.get_rsui_trend, {"range": "all"}),
+            (gdp.get_unemployment_age_longrun, {}),
+            (gdp.get_ardl_short_significance, {}),
+            (gdp.get_insights, {}),
+        ]:
+            try:
+                if "db" in fn.__wrapped__.__code__.co_varnames:
+                    await fn(db=db, _=None, **kwargs)
+                else:
+                    await fn(_=None, **kwargs)
+            except Exception as e:
+                logger.warning(f"Preload failed for {fn.__name__}: {e}")
+                errors += 1
+
+        # --- Wages (9 endpoints) ---
+        for fn, kwargs in [
+            (wages.get_wage_real_trend, {}),
+            (wages.get_wage_nominal_trend, {}),
+            (wages.get_wage_longrun_effect, {}),
+            (wages.get_wage_shortrun_effect, {}),
+            (wages.get_short_run_education_effect, {}),
+            (wages.get_rsui_trend, {"range": "all"}),
+            (wages.get_unemployment_age_longrun, {}),
+            (wages.get_ardl_short_significance, {}),
+            (wages.get_insights, {}),
+        ]:
+            try:
+                if "db" in fn.__wrapped__.__code__.co_varnames:
+                    await fn(db=db, _=None, **kwargs)
+                else:
+                    await fn(_=None, **kwargs)
+            except Exception as e:
+                logger.warning(f"Preload failed for {fn.__name__}: {e}")
+                errors += 1
+
+        # --- Unemployment (10 endpoints) ---
+        for fn, kwargs in [
+            (unemployment.get_unemployment_age_trend, {}),
+            (unemployment.education, {}),
+            (unemployment.get_total_unemployment_trend, {}),
+            (unemployment.get_long_run_education_effect, {}),
+            (unemployment.get_short_run_education_effect, {}),
+            (unemployment.get_total_unemployment_longrun, {}),
+            (unemployment.get_rsui_trend, {"range": "all"}),
+            (unemployment.get_unemployment_age_longrun, {}),
+            (unemployment.get_ardl_short_significance, {}),
+            (unemployment.get_insights, {}),
+        ]:
+            try:
+                if "db" in fn.__wrapped__.__code__.co_varnames:
+                    await fn(db=db, _=None, **kwargs)
+                else:
+                    await fn(_=None, **kwargs)
+            except Exception as e:
+                logger.warning(f"Preload failed for {fn.__name__}: {e}")
+                errors += 1
+
+        # --- Government Expenditure (5 endpoints) ---
+        for fn, kwargs in [
+            (governmentexpenditure.get_expenditure_type_trend, {}),
+            (governmentexpenditure.get_total_expenditure_trend, {}),
+            (governmentexpenditure.get_type_longrun_effect, {}),
+            (governmentexpenditure.get_type_shortrun_effect, {}),
+            (governmentexpenditure.get_insights, {}),
+        ]:
+            try:
+                if "db" in fn.__wrapped__.__code__.co_varnames:
+                    await fn(db=db, _=None, **kwargs)
+                else:
+                    await fn(_=None, **kwargs)
+            except Exception as e:
+                logger.warning(f"Preload failed for {fn.__name__}: {e}")
+                errors += 1
+
+        # --- Agriculture (6 endpoints) ---
+        for fn, kwargs in [
+            (agriculture.get_fao_multiline_trend, {"top_n": 5}),
+            (agriculture.get_fao_heatmap, {"top_n": 5}),
+            (agriculture.get_fao_latest_top_items, {"top_n": 5}),
+            (agriculture.get_agri_effect_only, {"horizon": "long_run", "top_n": 15}),
+            (agriculture.get_ardl_short_significance, {"top_n": 15}),
+            (agriculture.get_insights, {}),
+        ]:
+            try:
+                if "db" in fn.__wrapped__.__code__.co_varnames:
+                    await fn(db=db, _=None, **kwargs)
+                else:
+                    await fn(_=None, **kwargs)
+            except Exception as e:
+                logger.warning(f"Preload failed for {fn.__name__}: {e}")
+                errors += 1
+
+        # --- Graphs router: SKIP preload ---
+        # graphs.py endpoints accept dynamic user params.
+        # They get cached on first call per unique parameter combination.
+
+        logger.info(f"Cache warmed: {len(get_cache())} entries, {errors} failures")
+    except Exception as e:
+        logger.error(f"Preload aborted: {e}. Server starts with cold cache.")
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Preloading data cache...")
+    await _preload_all_caches()
+    logger.info("Cache preloaded. Server ready.")
+    yield
+
+
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Econex API",
     description="Backend API for the Econex Economic Intelligence Platform",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
