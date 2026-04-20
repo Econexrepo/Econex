@@ -25,17 +25,13 @@ jobs:
           echo "$SSH_PRIVATE_KEY" > /tmp/deploy_key
           chmod 600 /tmp/deploy_key
 
-      - name: Copy files to VM
+      - name: Copy deploy script to VM
         env:
           SSH_KEY: /tmp/deploy_key
         run: |
-          scp -i "$SSH_KEY" \
-            docker-compose.yml nginx.conf \
-            backend/Dockerfile frontend/Dockerfile \
-            deploy.sh \
-            teran8777@34.21.192.28:/home/teran8777/econex/
+          scp -i "$SSH_KEY" deploy.sh teran8777@34.21.192.28:/home/teran8777/deploy.sh
 
-      - name: Write .env to VM via SSH
+      - name: Run deploy script on VM with secrets
         env:
           SSH_KEY: /tmp/deploy_key
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
@@ -48,27 +44,15 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: |
           ssh -i "$SSH_KEY" teran8777@34.21.192.28 \
-            'cat > /home/teran8777/econex/.env << '\''EOF'\''
-            SECRET_KEY='"${SECRET_KEY}"'
-            ALGORITHM=HS256
-            ACCESS_TOKEN_EXPIRE_MINUTES=60
-            FRONTEND_ORIGIN=http://34.21.192.28
-            DATABASE_URL='"${DATABASE_URL}"'
-            WAREHOUSE_DATABASE_URL='"${WAREHOUSE_DATABASE_URL}"'
-            GROQ_API_KEY='"${GROQ_API_KEY}"'
-            SMTP_HOST='"${SMTP_HOST}"'
-            SMTP_PORT='"${SMTP_PORT}"'
-            SMTP_USER='"${SMTP_USER}"'
-            SMTP_PASSWORD='"${SMTP_PASSWORD}"'
-            HF_TOKEN=
-            EOF'
-
-      - name: Run deploy script on VM
-        env:
-          SSH_KEY: /tmp/deploy_key
-        run: |
-          ssh -i "$SSH_KEY" teran8777@34.21.192.28 \
-            'cd /home/teran8777/econex && bash deploy.sh'
+            'export SECRET_KEY="'"${SECRET_KEY}"'"
+             export DATABASE_URL="'"${DATABASE_URL}"'"
+             export WAREHOUSE_DATABASE_URL="'"${WAREHOUSE_DATABASE_URL}"'"
+             export GROQ_API_KEY="'"${GROQ_API_KEY}"'"
+             export SMTP_HOST="'"${SMTP_HOST}"'"
+             export SMTP_PORT="'"${SMTP_PORT}"'"
+             export SMTP_USER="'"${SMTP_USER}"'"
+             export SMTP_PASSWORD="'"${SMTP_PASSWORD}"'"
+             bash /home/teran8777/deploy.sh'
 
       - name: Health check
         run: |
