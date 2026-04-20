@@ -48,7 +48,7 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: |
           ssh -i "$SSH_KEY" teran8777@34.21.192.28 \
-            'cat > /home/teran8777/econex/.env << EOF
+            'cat > /home/teran8777/econex/.env << '\''EOF'\''
             SECRET_KEY='"${SECRET_KEY}"'
             ALGORITHM=HS256
             ACCESS_TOKEN_EXPIRE_MINUTES=60
