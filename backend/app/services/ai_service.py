@@ -90,11 +90,15 @@ def _load_relationship_table() -> pd.DataFrame:
     return df
 
 
-_REL = _load_relationship_table()
+try:
+    _REL = _load_relationship_table()
+except FileNotFoundError:
+    logger.warning("relationship_table.csv not found — AI chat features will be limited")
+    _REL = pd.DataFrame()
 
-INDEP_VOCAB: List[str] = sorted(set(_REL["_indep_l"].dropna()))
-GTYPE_VOCAB: List[str] = sorted(set(_REL["_gtype_l"].dropna()))
-GLABEL_VOCAB: List[str] = sorted(set(_REL["_glabel_l"].dropna()), key=len, reverse=True)
+INDEP_VOCAB: List[str] = sorted(set(_REL["_indep_l"].dropna())) if "_indep_l" in _REL.columns else []
+GTYPE_VOCAB: List[str] = sorted(set(_REL["_gtype_l"].dropna())) if "_gtype_l" in _REL.columns else []
+GLABEL_VOCAB: List[str] = sorted(set(_REL["_glabel_l"].dropna()), key=len, reverse=True) if "_glabel_l" in _REL.columns else []
 
 
 # =============================================================================
