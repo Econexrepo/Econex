@@ -44,23 +44,23 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: |
           cat > /tmp/env_vars.sh << 'ENVEOF'
-          export SECRET_KEY="SECRET_KEY_VAL"
-          export DATABASE_URL="DATABASE_URL_VAL"
-          export WAREHOUSE_DATABASE_URL="WAREHOUSE_DATABASE_URL_VAL"
-          export GROQ_API_KEY="GROQ_API_KEY_VAL"
-          export SMTP_HOST="SMTP_HOST_VAL"
-          export SMTP_PORT="SMTP_PORT_VAL"
-          export SMTP_USER="SMTP_USER_VAL"
-          export SMTP_PASSWORD="SMTP_PASSWORD_VAL"
+          export SECRET_KEY="__SECRET_KEY__"
+          export DATABASE_URL="__DB_URL__"
+          export WAREHOUSE_DATABASE_URL="__WH_DB_URL__"
+          export GROQ_API_KEY="__GROQ_KEY__"
+          export SMTP_HOST="__SMTP_HOST__"
+          export SMTP_PORT="__SMTP_PORT__"
+          export SMTP_USER="__SMTP_USER__"
+          export SMTP_PASSWORD="__SMTP_PASS__"
           ENVEOF
-          sed -i "s|SECRET_KEY_VAL|${SECRET_KEY}|g" /tmp/env_vars.sh
-          sed -i "s|DATABASE_URL_VAL|${DATABASE_URL}|g" /tmp/env_vars.sh
-          sed -i "s|WAREHOUSE_DATABASE_URL_VAL|${WAREHOUSE_DATABASE_URL}|g" /tmp/env_vars.sh
-          sed -i "s|GROQ_API_KEY_VAL|${GROQ_API_KEY}|g" /tmp/env_vars.sh
-          sed -i "s|SMTP_HOST_VAL|${SMTP_HOST}|g" /tmp/env_vars.sh
-          sed -i "s|SMTP_PORT_VAL|${SMTP_PORT}|g" /tmp/env_vars.sh
-          sed -i "s|SMTP_USER_VAL|${SMTP_USER}|g" /tmp/env_vars.sh
-          sed -i "s|SMTP_PASSWORD_VAL|${SMTP_PASSWORD}|g" /tmp/env_vars.sh
+          sed -i "s|__SECRET_KEY__|${SECRET_KEY}|g" /tmp/env_vars.sh
+          sed -i "s|__DB_URL__|${DATABASE_URL}|g" /tmp/env_vars.sh
+          sed -i "s|__WH_DB_URL__|${WAREHOUSE_DATABASE_URL}|g" /tmp/env_vars.sh
+          sed -i "s|__GROQ_KEY__|${GROQ_API_KEY}|g" /tmp/env_vars.sh
+          sed -i "s|__SMTP_HOST__|${SMTP_HOST}|g" /tmp/env_vars.sh
+          sed -i "s|__SMTP_PORT__|${SMTP_PORT}|g" /tmp/env_vars.sh
+          sed -i "s|__SMTP_USER__|${SMTP_USER}|g" /tmp/env_vars.sh
+          sed -i "s|__SMTP_PASS__|${SMTP_PASSWORD}|g" /tmp/env_vars.sh
           scp -i "$SSH_KEY" /tmp/env_vars.sh teran8777@34.21.192.28:/home/teran8777/env_vars.sh
 
       - name: Run deploy on VM
