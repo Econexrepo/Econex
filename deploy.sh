@@ -5,6 +5,10 @@ TARGET_DIR=/home/teran8777/econex
 
 # Clone repo if it doesn't exist (first deploy), otherwise just pull latest
 if [ ! -d "$TARGET_DIR/.git" ]; then
+    # Remove stale directory that isn't a git repo (e.g., from a failed deploy)
+    if [ -d "$TARGET_DIR" ]; then
+        rm -rf "$TARGET_DIR"
+    fi
     git clone https://github.com/NethmiTharushi22/Econex.git "$TARGET_DIR"
 else
     cd "$TARGET_DIR"
