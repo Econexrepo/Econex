@@ -264,8 +264,9 @@ def _extract_group_label_exact(q: str) -> Optional[str]:
             return lbl
     return None
 
-    "compare agri production":
-        "You can compare agricultural production categories by asking: 'compare agri production categories' or 'which agri production category affects RSUI the most?'.",
+# TODO: add to a hints dict when one is created
+# "compare agri production":
+#     "You can compare agricultural production categories by asking: 'compare agri production categories' or 'which agri production category affects RSUI the most?'."
 
 # =============================================================================
 # Filtering / ranking (your logic)
