@@ -548,10 +548,10 @@ export default function Dashboard() {
           </ChartCard>
         )}
 
-        {charts["unemployment-age-longrun"]?.length > 0 && (
+        {charts["long-run-education-effect"]?.length > 0 && (
           <ChartCard title="Long-run ARDL Effect by Education Level" height={360} className="chart-card--full">
             <Bar
-              data={longRunEducationEffectBarDataset(charts["unemployment-age-longrun"])}
+              data={longRunEducationEffectBarDataset(charts["long-run-education-effect"])}
               options={longRunEffectOpts}
             />
           </ChartCard>
