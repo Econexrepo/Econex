@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -11,7 +10,10 @@ import {
   Filler,
 } from 'chart.js'
 import { Line, Bar } from 'react-chartjs-2'
+import { useQuery, useQueries } from '@tanstack/react-query'
 import api from '../api/axios'
+import { useDashboardStats, useRSUITrend } from '../hooks/useSharedData'
+import { wagesInsights } from '../data/insights'
 import './Dashboard.css'
 
 ChartJS.register(
@@ -237,6 +239,50 @@ const lineOpts = {
   plugins: { legend: { display: false } },
 }
 
+const gdpTrendOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      display: true,
+      position: 'bottom',
+      labels: {
+        boxWidth: 12,
+        padding: 12,
+        font: { size: 11 },
+      },
+    },
+    tooltip: {
+      callbacks: {
+        label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toFixed(2)}%`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      grid: { display: false },
+      title: {
+        display: true,
+        text: 'Year',
+      },
+      ticks: {
+        autoSkip: true,
+        maxTicksLimit: 10,
+      },
+    },
+    y: {
+      grid: { color: '#e5e7eb' },
+      title: {
+        display: true,
+        text: 'GDP Growth (%)',
+      },
+      ticks: {
+        callback: (v) => `${v}%`,
+      },
+    },
+  },
+}
+
 // ─────────────────────────────────────────────────────────
 // Chart card
 // ─────────────────────────────────────────────────────────
@@ -249,59 +295,85 @@ function ChartCard({ title, children, height = 220 }) {
   )
 }
 
+function gdpSectorTrendDataset(data = []) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return { labels: [], datasets: [] }
+  }
+
+  const years = [...new Set(data.map((d) => Number(d.year)))].sort((a, b) => a - b)
+  const categories = [...new Set(data.map((d) => d.category))]
+
+  const LINE_COLORS = [
+    '#3b82f6',
+    '#10b981',
+    '#f59e0b',
+    '#ef4444',
+    '#8b5cf6',
+    '#06b6d4',
+    '#ec4899',
+    '#84cc16',
+  ]
+
+  const datasets = categories.map((category, idx) => {
+    const yearValueMap = new Map()
+
+    data
+      .filter((d) => d.category === category)
+      .forEach((d) => {
+        yearValueMap.set(Number(d.year), Number(d.value))
+      })
+
+    return {
+      label: category,
+      data: years.map((y) => yearValueMap.get(y) ?? null),
+      borderColor: LINE_COLORS[idx % LINE_COLORS.length],
+      backgroundColor: LINE_COLORS[idx % LINE_COLORS.length],
+      tension: 0.25,
+      fill: false,
+      pointRadius: 2,
+      pointHoverRadius: 4,
+      borderWidth: 2,
+    }
+  })
+
+  return {
+    labels: years,
+    datasets,
+  }
+}
+
 // ─────────────────────────────────────────────────────────
 // Main Dashboard
 // ─────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [charts, setCharts] = useState({})
-  const [rsui, setRsui] = useState([])
-  const [insights, setInsights] = useState([])
-  const [loading, setLoading] = useState(true)
+  // Warm the cache for other pages, but don't use the result
+  useDashboardStats()
 
-  useEffect(() => {
-    const loadDashboard = async () => {
-      try {
-        const [, rsRes, insRes] = await Promise.all([
-          api.get('/api/dashboard/stats'),
-          api.get('/api/dashboard/rsui-trend'),
-          api.get('/api/dashboard/insights'),
-        ])
+  const { data: rsuiData, isLoading: rsuiLoading } = useRSUITrend()
+  const rsui = rsuiData?.data || []
 
-        setRsui(rsRes.data?.data || [])
-        setInsights(insRes.data?.insights || [])
+  const { data: gdpSectorTrend = [], isLoading: gdpSectorLoading } = useQuery({
+    queryKey: ['gdp', 'chart', 'gdp-sector-trend'],
+    queryFn: () => api.get('/api/gdp/charts/gdp-sector-trend').then(res => res.data?.data || []),
+  })
 
-        const chartNames = [
-          'wage-real-trend',
-          'wage-longrun-effect',
-          'wage-shortrun-effect',
-        ]
+  const chartNames = ['wage-real-trend', 'wage-longrun-effect', 'wage-shortrun-effect']
 
-        const chartResults = await Promise.allSettled(
-          chartNames.map((c) => api.get(`/api/wages/charts/${c}`))
-        )
+  const chartQueries = useQueries({
+    queries: chartNames.map(name => ({
+      queryKey: ['wages', 'chart', name],
+      queryFn: () => api.get(`/api/wages/charts/${name}`).then(res => res.data?.data || []),
+    })),
+  })
 
-        const chartData = {}
+  const chartsLoading = chartQueries.some(q => q.isLoading)
 
-        chartNames.forEach((name, i) => {
-          const result = chartResults[i]
-          if (result.status === 'fulfilled') {
-            chartData[name] = result.value.data?.data || []
-          } else {
-            console.error(`Failed to load chart: ${name}`, result.reason)
-            chartData[name] = []
-          }
-        })
+  const charts = {}
+  chartNames.forEach((name, i) => {
+    charts[name] = chartQueries[i].data || []
+  })
 
-        setCharts(chartData)
-      } catch (err) {
-        console.error('Dashboard API error', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadDashboard()
-  }, [])
+  const loading = rsuiLoading || chartsLoading || gdpSectorLoading
 
   if (loading) {
     return <div className="dashboard">Loading dashboard...</div>
@@ -323,6 +395,15 @@ export default function Dashboard() {
   return (
     <div className="dashboard">
       <div className="charts-grid">
+        {Array.isArray(gdpSectorTrend) && gdpSectorTrend.length > 0 && (
+          <ChartCard title="GDP Growth Trend by Sector" height={420}>
+            <Line
+              data={gdpSectorTrendDataset(gdpSectorTrend)}
+              options={gdpTrendOpts}
+            />
+          </ChartCard>
+        )}
+
         {Array.isArray(charts['wage-real-trend']) &&
           charts['wage-real-trend'].length > 0 && (
             <ChartCard title="Real Wage Trend by Category" height={420}>
@@ -362,8 +443,8 @@ export default function Dashboard() {
       </div>
 
       <div className="insights-section">
-        {Array.isArray(insights) &&
-          insights.map((ins) => (
+        {Array.isArray(wagesInsights) &&
+          wagesInsights.map((ins) => (
             <div key={ins.id} className={`insight-card insight-${ins.type}`}>
               <span>{ins.icon}</span>
               <strong>{ins.title}</strong>

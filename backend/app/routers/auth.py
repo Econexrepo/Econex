@@ -130,6 +130,18 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserOut:
     except JWTError:
         raise credentials_exception
 
+    uid = payload.get("uid")
+    if uid:
+        return UserOut(
+            id=uid,
+            name=payload.get("name", ""),
+            email=email,
+            username=payload.get("username", ""),
+            phone=payload.get("phone"),
+            avatar_url=payload.get("avatar_url"),
+        )
+
+    # Fallback for tokens issued before this change
     with engine.connect() as conn:
         row = conn.execute(
             text(
@@ -238,19 +250,28 @@ async def login(body: LoginRequest):
         else settings.ACCESS_TOKEN_EXPIRE_MINUTES
     )
 
-    token = create_access_token({"sub": row[2]}, expire_minutes)
-
-    return TokenResponse(
-    access_token=token,
-    user=UserOut(
+    user = UserOut(
         id=str(row[0]),
         name=row[1],
         email=row[2],
         username=row[3],
         phone=row[4],
         avatar_url=row[5],
-    ),
-)
+    )
+
+    token = create_access_token(
+        {
+            "sub": user.email,
+            "uid": user.id,
+            "name": user.name,
+            "username": user.username,
+            "phone": user.phone,
+            "avatar_url": user.avatar_url,
+        },
+        expire_minutes,
+    )
+
+    return TokenResponse(access_token=token, user=user)
 
 
 @router.post("/forgot-password")

@@ -49,6 +49,8 @@ def get_auth_db():
 warehouse_engine = create_engine(
     WAREHOUSE_DATABASE_URL,
     pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
 )
 
 WarehouseSessionLocal = sessionmaker(

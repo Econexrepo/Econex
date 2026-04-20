@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, HTTPException
 from typing import Literal
 from sqlalchemy import text, bindparam
 from app.db import warehouse_engine
+from app.cache import cached_endpoint
 
 router = APIRouter()
 
@@ -587,6 +588,7 @@ def fetch_fao(cfg, subsector, year_from, year_to, filters_list):
 
 # ---------------- endpoints ----------------
 @router.get("/domains")
+@cached_endpoint
 def list_domains():
     return {
         "domains": [
@@ -604,6 +606,7 @@ def list_domains():
 
 
 @router.get("/subsectors")
+@cached_endpoint
 def get_subsectors(
     domain: str = Query(...),
     field: str | None = Query(None, description="For wages: field=category_group to list groups"),
@@ -640,6 +643,7 @@ def get_subsectors(
 
 
 @router.get("/timeseries")
+@cached_endpoint
 def timeseries(
     domain: str = Query(...),
     subsector: str = Query("all"),
@@ -720,5 +724,6 @@ def timeseries(
 
 
 @router.get("/available")
+@cached_endpoint
 def available():
     return list_domains()
