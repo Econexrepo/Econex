@@ -10,7 +10,7 @@ import {
   Filler,
 } from 'chart.js'
 import { Line, Bar } from 'react-chartjs-2'
-import { useQueries } from '@tanstack/react-query'
+import { useQuery, useQueries } from '@tanstack/react-query'
 import api from '../api/axios'
 import { useDashboardStats, useRSUITrend } from '../hooks/useSharedData'
 import { wagesInsights } from '../data/insights'
@@ -352,6 +352,11 @@ export default function Dashboard() {
   const { data: rsuiData, isLoading: rsuiLoading } = useRSUITrend()
   const rsui = rsuiData?.data || []
 
+  const { data: gdpSectorTrend = [], isLoading: gdpSectorLoading } = useQuery({
+    queryKey: ['gdp', 'chart', 'gdp-sector-trend'],
+    queryFn: () => api.get('/api/gdp/charts/gdp-sector-trend').then(res => res.data?.data || []),
+  })
+
   const chartNames = ['wage-real-trend', 'wage-longrun-effect', 'wage-shortrun-effect']
 
   const chartQueries = useQueries({
@@ -368,7 +373,7 @@ export default function Dashboard() {
     charts[name] = chartQueries[i].data || []
   })
 
-  const loading = rsuiLoading || chartsLoading
+  const loading = rsuiLoading || chartsLoading || gdpSectorLoading
 
   if (loading) {
     return <div className="dashboard">Loading dashboard...</div>
