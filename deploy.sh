@@ -3,9 +3,12 @@ set -e
 
 TARGET_DIR=/home/teran8777/econex
 
-# Clone repo if it doesn't exist (first deploy)
+# Clone repo if it doesn't exist (first deploy), otherwise just pull latest
 if [ ! -d "$TARGET_DIR/.git" ]; then
     git clone https://github.com/NethmiTharushi22/Econex.git "$TARGET_DIR"
+else
+    cd "$TARGET_DIR"
+    git pull origin main
 fi
 
 cd "$TARGET_DIR"
