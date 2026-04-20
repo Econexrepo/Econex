@@ -213,6 +213,9 @@ async def get_total_unemployment_longrun(_: UserOut = Depends(get_current_user))
 
     path = RESULTS_DIR / "rsui_total_unemployment_long_run_effects.csv"
 
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Missing file: {path.resolve()}")
+
     df = pd.read_csv(path)
     df.columns = [str(c).strip() for c in df.columns]
 

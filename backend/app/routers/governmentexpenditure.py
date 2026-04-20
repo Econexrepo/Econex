@@ -191,7 +191,7 @@ async def get_type_shortrun_effect(_: UserOut = Depends(get_current_user)):
 # ─────────────────────────────────────────────────────────
 @router.get("/charts/total-longrun-effect")
 async def get_total_longrun_effect(_: UserOut = Depends(get_current_user)):
-    path = RESULTS_DIR / "rsui_long_run_total_expenditure.csv"
+    path = RESULTS_DIR / "rsui__long_run_total_expenditure.csv"
 
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Missing file: {path.resolve()}")
