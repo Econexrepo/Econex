@@ -542,6 +542,17 @@ function HeatmapCard({ title, data, height = 320 }) {
   )
 }
 
+function extractUnitFromLabel(label) {
+  const text = String(label || '').trim()
+  const match = text.match(/^\[([^\]]+)\]/)
+  return match ? match[1].trim() : 'Other'
+}
+
+function removeUnitPrefix(label) {
+  const text = String(label || '').trim()
+  return text.replace(/^\[[^\]]+\]\s*/, '').trim()
+}
+
 export default function Dashboard() {
   const [selectedAgriUnit, setSelectedAgriUnit] = useState('')
   const [selectedShortRunUnit, setSelectedShortRunUnit] = useState('')
