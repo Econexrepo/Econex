@@ -33,9 +33,9 @@ SMTP_PASSWORD=$SMTP_PASSWORD
 HF_TOKEN=
 EOF
 
-# Build and start containers
-docker compose build
-docker compose up -d
+# Build and start containers (--no-cache ensures env/config changes take effect)
+docker compose build --no-cache
+docker compose up -d --force-recreate
 
 # Verify
 docker compose ps
