@@ -1,5 +1,5 @@
 import re
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, EmailStr, field_validator
 
 
@@ -101,6 +101,22 @@ class ChatMessageOut(BaseModel):
     session_id: str
     role: str
     content: str
+
+
+class ChartMessageIn(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+    caption: Optional[str] = ""
+    chart_payload: Optional[dict[str, Any]] = None
+    image_data_url: Optional[str] = None
+
+
+class ChartMessageOut(BaseModel):
+    session_id: str
+    role: str
+    content: str
+    message_type: str = "chart"
+    image_url: Optional[str] = None
 
 
 class DashboardStats(BaseModel):

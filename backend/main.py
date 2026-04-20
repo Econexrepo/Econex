@@ -431,6 +431,7 @@ app.include_router(gdp.router, prefix="/api/gdp", tags=["gdp"])
 app.include_router(agriculture.router, prefix="/api/agriculture", tags=["agriculture"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(governmentexpenditure.router, prefix="/api/government-expenditure", tags=["Government Expenditure"])
+app.include_router(graphs.router, prefix="/api/graphs", tags=["Graphs"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 
 
