@@ -33,7 +33,7 @@ jobs:
             docker-compose.yml nginx.conf \
             backend/Dockerfile frontend/Dockerfile \
             deploy.sh \
-            ubuntu@34.21.192.28:/home/ubuntu/econex/
+            teran8777@34.21.192.28:/home/teran8777/econex/
 
       - name: Write .env to VM via SSH
         env:
@@ -47,8 +47,8 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: |
-          ssh -i "$SSH_KEY" ubuntu@34.21.192.28 \
-            'cat > /home/ubuntu/econex/.env << EOF
+          ssh -i "$SSH_KEY" teran8777@34.21.192.28 \
+            'cat > /home/teran8777/econex/.env << EOF
             SECRET_KEY='"${SECRET_KEY}"'
             ALGORITHM=HS256
             ACCESS_TOKEN_EXPIRE_MINUTES=60
@@ -67,8 +67,8 @@ jobs:
         env:
           SSH_KEY: /tmp/deploy_key
         run: |
-          ssh -i "$SSH_KEY" ubuntu@34.21.192.28 \
-            'cd /home/ubuntu/econex && bash deploy.sh'
+          ssh -i "$SSH_KEY" teran8777@34.21.192.28 \
+            'cd /home/teran8777/econex && bash deploy.sh'
 
       - name: Health check
         run: |
