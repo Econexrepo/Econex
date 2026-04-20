@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-TARGET_DIR=/home/teran8777/econex
+TARGET_DIR=/home/dasunimandini/econex
 
 # Clone repo if it doesn't exist (first deploy), otherwise just pull latest
 if [ ! -d "$TARGET_DIR/.git" ]; then

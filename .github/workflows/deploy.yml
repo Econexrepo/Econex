@@ -29,7 +29,7 @@ jobs:
         env:
           SSH_KEY: /tmp/deploy_key
         run: |
-          scp -i "$SSH_KEY" deploy.sh teran8777@34.21.192.28:/home/teran8777/deploy.sh
+          scp -i "$SSH_KEY" deploy.sh dasunimandini@34.21.192.28:/home/dasunimandini/deploy.sh
 
       - name: Copy env vars file to VM
         env:
@@ -61,14 +61,14 @@ jobs:
           sed -i "s|__SMTP_PORT__|${SMTP_PORT}|g" /tmp/env_vars.sh
           sed -i "s|__SMTP_USER__|${SMTP_USER}|g" /tmp/env_vars.sh
           sed -i "s|__SMTP_PASS__|${SMTP_PASSWORD}|g" /tmp/env_vars.sh
-          scp -i "$SSH_KEY" /tmp/env_vars.sh teran8777@34.21.192.28:/home/teran8777/env_vars.sh
+          scp -i "$SSH_KEY" /tmp/env_vars.sh dasunimandini@34.21.192.28:/home/dasunimandini/env_vars.sh
 
       - name: Run deploy on VM
         env:
           SSH_KEY: /tmp/deploy_key
         run: |
-          ssh -i "$SSH_KEY" teran8777@34.21.192.28 \
-            'bash -c "source /home/teran8777/env_vars.sh && bash /home/teran8777/deploy.sh"'
+          ssh -i "$SSH_KEY" dasunimandini@34.21.192.28 \
+            'bash -c "source /home/dasunimandini/env_vars.sh && bash /home/dasunimandini/deploy.sh"'
 
       - name: Health check
         run: |
